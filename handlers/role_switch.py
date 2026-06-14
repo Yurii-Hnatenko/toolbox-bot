@@ -48,8 +48,7 @@ async def set_active_role(callback: CallbackQuery):
     new_role = callback.data.split("_")[2]
     user_id = callback.from_user.id
     
-    active_role[user_id] = new_role
-    
+    # Перевіряємо, чи користувач дійсно має цю роль в БД
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == user_id))
         user = result.scalar_one_or_none()
@@ -58,6 +57,13 @@ async def set_active_role(callback: CallbackQuery):
             await callback.answer("❌ Користувача не знайдено")
             return
         
+        if new_role not in user.role_list:
+            await callback.answer(f"❌ У вас немає ролі {new_role.capitalize()}")
+            return
+        
+        # Оновлюємо активну роль
+        active_role[user_id] = new_role
+        
         await callback.message.answer(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
             f"Ваше меню оновлено:",
@@ -65,6 +71,7 @@ async def set_active_role(callback: CallbackQuery):
             parse_mode="Markdown"
         )
         
+        # Видаляємо старе повідомлення з кнопками
         try:
             await callback.message.delete()
         except Exception:
