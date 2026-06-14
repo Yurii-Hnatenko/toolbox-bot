@@ -127,7 +127,10 @@ async def back_to_admin_menu(callback: CallbackQuery):
         "🔙 Повернення до адмін-меню",
         reply_markup=main_menu_by_role("admin")
     )
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.answer()
 
 @router.callback_query(F.data == "add_toolbox")
@@ -194,7 +197,10 @@ async def delete_toolbox_menu(callback: CallbackQuery):
 @router.callback_query(F.data == "back_to_boxes_menu")
 async def back_to_boxes_menu(callback: CallbackQuery, state: FSMContext):
     await manage_boxes(callback.message, state)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.answer()
 
 @router.callback_query(F.data.startswith("delbox_"))
@@ -214,74 +220,4 @@ async def confirm_delete_box(callback: CallbackQuery):
             await callback.message.answer(f"🗑️ Ящик '{toolbox.name}' видалено.")
             await manage_boxes(callback.message, FSMContext())
         else:
-            await callback.message.answer("❌ Ящик не знайдено.")
-    await callback.answer()
-
-@router.message(F.text == "📊 Глобальна статистика")
-async def global_stats(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("⛔ Доступ заборонено")
-        return
-    
-    async with async_session() as session:
-        users = await session.execute(select(User))
-        users = users.scalars().all()
-        checks = await session.execute(select(ToolCheck))
-        checks = checks.scalars().all()
-        boxes = await session.execute(select(Toolbox))
-        boxes = boxes.scalars().all()
-        
-        complete_count = 0
-        incomplete_boxes = []
-        
-        for box in boxes:
-            result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
-            status = result.scalar_one_or_none()
-            if status and status.is_complete:
-                complete_count += 1
-            else:
-                incomplete_boxes.append(box.name)
-        
-        stats = "📊 **ГЛОБАЛЬНА СТАТИСТИКА СИСТЕМИ**\n"
-        stats += "━" * 30 + "\n\n"
-        
-        stats += f"👥 **Користувачі:**\n"
-        stats += f"│   Всього: {len(users)}\n"
-        
-        admin_count = sum(1 for u in users if "admin" in u.role_list)
-        mechanic_count = sum(1 for u in users if "mechanic" in u.role_list)
-        operator_count = sum(1 for u in users if "operator" in u.role_list)
-        
-        stats += f"│   👑 Адміністраторів: {admin_count}\n"
-        stats += f"│   🔧 Механіків: {mechanic_count}\n"
-        stats += f"│   👤 Операторів: {operator_count}\n\n"
-        
-        stats += f"📦 **Інструментальні ящики:**\n"
-        stats += f"│   Всього: {len(boxes)} / 15\n"
-        stats += f"│   ✅ Комплектних: {complete_count}\n"
-        stats += f"│   ❌ Не комплектних: {len(boxes) - complete_count}\n"
-        
-        if incomplete_boxes:
-            stats += f"│\n│   ⚠️ **Не комплектні ящики:**\n"
-            for box_name in incomplete_boxes:
-                stats += f"│      • {box_name}\n"
-        
-        stats += f"\n🔧 **Статистика перевірок:**\n"
-        stats += f"│   Всього перевірок: {len(checks)}\n"
-        
-        if checks:
-            last_checks = await session.execute(
-                select(ToolCheck).order_by(ToolCheck.timestamp.desc()).limit(5)
-            )
-            last_checks = last_checks.scalars().all()
-            
-            stats += f"│\n│   🕐 **Останні 5 перевірок:**\n"
-            for ch in last_checks:
-                box = await session.get(Toolbox, ch.toolbox_id)
-                box_name = box.name if box else "Невідомо"
-                user = await session.get(User, ch.user_id)
-                user_name = user.full_name if user else "Невідомо"
-                status_icon = "✅" if ch.is_present else "❌"
-                stats += f"│      • {box_name} ─ {ch.tool_name}: {status_icon} ({user_name})\n"
-        
-        await message.answer(stats, parse_mode="Markdown")
+            await callback.message.answer("❌ Ящик не зна
