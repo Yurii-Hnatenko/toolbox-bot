@@ -41,7 +41,6 @@ def toolboxes_list_kb(toolboxes, prefix="check"):
         buttons.append([InlineKeyboardButton(text=tb.name, callback_data=f"{prefix}_{tb.id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# НОВА ФУНКЦІЯ ДЛЯ ДЕТАЛЬНИХ ЗВІТІВ
 def report_boxes_list_kb(toolboxes):
     buttons = []
     for tb in toolboxes:
