@@ -1,5 +1,6 @@
+import os
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
@@ -34,9 +35,11 @@ async def manage_tools(message: Message, state: FSMContext):
 async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
     toolbox_id = int(callback.data.split("_")[1])
     await state.update_data(toolbox_id=toolbox_id)
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         tools = toolbox.get_tools()
+        
         if not tools:
             await callback.message.answer(f"📦 {toolbox.name}\nІнструменти відсутні. Додайте перший.")
             await state.set_state(EditToolsState.adding_tool)
@@ -48,7 +51,11 @@ async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
                 buttons.append([InlineKeyboardButton(text=f"🗑️ Видалити {tool}", callback_data=f"del_tool_{toolbox_id}_{tool}")])
             buttons.append([InlineKeyboardButton(text="➕ Додати інструмент", callback_data=f"add_tool_{toolbox_id}")])
             buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes")])
-            await callback.message.answer(f"📦 {toolbox.name}\nОберіть дію:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+            
+            await callback.message.answer(
+                f"📦 {toolbox.name}\nОберіть дію:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+            )
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_boxes")
@@ -73,9 +80,11 @@ async def add_tool(message: Message, state: FSMContext):
     data = await state.get_data()
     toolbox_id = data.get("toolbox_id")
     new_tool = message.text.strip()
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         tools = toolbox.get_tools()
+        
         if new_tool not in tools:
             tools.append(new_tool)
             toolbox.set_tools(tools)
@@ -83,6 +92,7 @@ async def add_tool(message: Message, state: FSMContext):
             await message.answer(f"✅ Інструмент '{new_tool}' додано.")
         else:
             await message.answer(f"⚠️ '{new_tool}' вже існує.")
+    
     await state.clear()
     await edit_tools_list(message, state)
 
@@ -100,9 +110,11 @@ async def save_edited_tool(message: Message, state: FSMContext):
     toolbox_id = data.get("toolbox_id")
     old_name = data.get("old_tool_name")
     new_name = message.text.strip()
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         tools = toolbox.get_tools()
+        
         if old_name in tools:
             idx = tools.index(old_name)
             tools[idx] = new_name
@@ -111,6 +123,7 @@ async def save_edited_tool(message: Message, state: FSMContext):
             await message.answer(f"✅ Перейменовано '{old_name}' → '{new_name}'")
         else:
             await message.answer("❌ Інструмент не знайдено.")
+    
     await state.clear()
     await edit_tools_list(message, state)
 
@@ -118,14 +131,17 @@ async def save_edited_tool(message: Message, state: FSMContext):
 async def delete_tool(callback: CallbackQuery):
     _, toolbox_id, tool_name = callback.data.split("_", 2)
     toolbox_id = int(toolbox_id)
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         tools = toolbox.get_tools()
+        
         if tool_name in tools:
             tools.remove(tool_name)
             toolbox.set_tools(tools)
             await session.commit()
             await callback.message.answer(f"🗑️ Інструмент '{tool_name}' видалено.")
+    
     await callback.answer()
     await edit_tools_list(callback, FSMContext())
 
@@ -134,17 +150,21 @@ async def full_report(message: Message):
     async with async_session() as session:
         toolboxes = await session.execute(select(Toolbox))
         toolboxes = toolboxes.scalars().all()
+        
         if not toolboxes:
             await message.answer("❌ Немає ящиків.")
             return
-        report = "📊 ЗВІТ\n\n"
+        
+        report = "📊 ЗВІТ ПО ВСІХ ЯЩИКАХ\n\n"
         for box in toolboxes:
             status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
             status = status.scalar_one_or_none()
+            
             report += f"📦 {box.name}: {'✅ Укомплектовано' if status and status.is_complete else '❌ Не укомплектовано'}\n"
             if status and status.last_user:
                 report += f"👤 Останній користувач: {status.last_user}\n"
             report += "\n"
+        
         await message.answer(report)
 
 @router.message(F.text == "🏷️ Змінити останнього користувача")
@@ -171,6 +191,7 @@ async def save_last_user(message: Message, state: FSMContext):
     data = await state.get_data()
     toolbox_id = data.get("toolbox_id")
     last_user = message.text.strip()
+    
     async with async_session() as session:
         box_status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
         box_status = box_status.scalar_one_or_none()
@@ -183,7 +204,7 @@ async def save_last_user(message: Message, state: FSMContext):
     await state.clear()
 
 @router.message(F.text == "📸 Фото інструментів")
-async def view_tool_photos(message: Message):
+async def view_tool_photos_mechanic(message: Message):
     async with async_session() as session:
         toolboxes = await session.execute(select(Toolbox))
         toolboxes = toolboxes.scalars().all()
@@ -193,28 +214,17 @@ async def view_tool_photos(message: Message):
         await message.answer("Оберіть ящик:", reply_markup=toolboxes_list_kb(toolboxes, "photos"))
 
 @router.callback_query(F.data.startswith("photos_"))
-async def show_tools_for_photo(callback: CallbackQuery):
+async def show_tools_for_photo_mechanic(callback: CallbackQuery):
     toolbox_id = int(callback.data.split("_")[1])
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         tools = toolbox.get_tools()
+        
         if not tools:
             await callback.message.answer("❌ Немає інструментів.")
             await callback.answer()
             return
+        
         buttons = [[InlineKeyboardButton(text=f"📷 {tool}", callback_data=f"view_photo_{toolbox_id}_{tool}")] for tool in tools]
         await callback.message.answer(f"📸 Оберіть інструмент:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("view_photo_"))
-async def show_photo(callback: CallbackQuery):
-    _, toolbox_id, tool_name = callback.data.split("_", 2)
-    async with async_session() as session:
-        photo = await session.execute(select(ToolImage).where(ToolImage.toolbox_id == int(toolbox_id), ToolImage.tool_name == tool_name).order_by(ToolImage.uploaded_at.desc()).limit(1))
-        photo = photo.scalar_one_or_none()
-        if photo and os.path.exists(photo.photo_path):
-            from aiogram.types import FSInputFile
-            await callback.message.answer_photo(photo=FSInputFile(photo.photo_path), caption=f"🔧 {tool_name}")
-        else:
-            await callback.message.answer(f"❌ Фото для {tool_name} відсутнє.")
     await callback.answer()
