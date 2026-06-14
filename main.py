@@ -15,6 +15,7 @@ async def on_startup():
 
 dp.startup.register(on_startup)
 
+# Реєструємо всі handlers
 dp.include_router(common.router)
 dp.include_router(operator.router)
 dp.include_router(mechanic.router)
