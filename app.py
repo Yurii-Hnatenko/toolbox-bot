@@ -3,25 +3,39 @@ import sys
 import asyncio
 from flask import Flask, request
 from aiogram.types import Update
+import logging
+
+# Налаштовуємо логування
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.getcwd())
 
 app = Flask(__name__)
 
 # Імпортуємо бота з main.py
-from main import bot, dp
+try:
+    from main import bot, dp
+    logger.info("✅ Бот успішно імпортовано")
+except Exception as e:
+    logger.error(f"❌ Помилка імпорту бота: {e}")
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         data = request.get_json()
+        logger.info(f"Отримано дані: {data}")
+        
         if data:
             update = Update.model_validate(data)
             asyncio.run(dp.feed_update(bot, update))
+            logger.info("✅ Оновлення оброблено")
             return 'OK', 200
         return 'No data', 400
     except Exception as e:
-        print(f"Помилка вебхука: {e}")
+        logger.error(f"❌ Помилка вебхука: {e}")
+        import traceback
+        traceback.print_exc()
         return 'Error', 500
 
 @app.route('/')
