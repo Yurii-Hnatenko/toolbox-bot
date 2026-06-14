@@ -23,6 +23,13 @@ def safe_int(value, default=None):
     except (ValueError, TypeError, IndexError):
         return default
 
+def admin_manage_boxes_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Додати ящик", callback_data="add_toolbox")],
+        [InlineKeyboardButton(text="❌ Видалити ящик", callback_data="delete_toolbox")],
+        [InlineKeyboardButton(text="🔙 Назад до меню", callback_data="back_to_admin_menu")]
+    ])
+
 @router.message(F.text == "👥 Керування ролями")
 async def manage_roles(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -106,39 +113,63 @@ async def manage_boxes(message: Message, state: FSMContext):
         toolboxes = toolboxes.scalars().all()
         
         if toolboxes:
-            await message.answer("Список ящиків:", reply_markup=toolboxes_list_kb(toolboxes, "adminbox"))
+            await message.answer("📋 Список ящиків:", reply_markup=toolboxes_list_kb(toolboxes, "adminbox"))
         
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Додати ящик", callback_data="add_toolbox")],
-            [InlineKeyboardButton(text="❌ Видалити ящик", callback_data="delete_toolbox")]
-        ])
-        await message.answer("Керування:", reply_markup=kb)
+        await message.answer(
+            "🔧 **Керування ящиками**\n\n"
+            "Оберіть дію:",
+            reply_markup=admin_manage_boxes_kb(),
+            parse_mode="Markdown"
+        )
+
+@router.callback_query(F.data == "back_to_admin_menu")
+async def back_to_admin_menu(callback: CallbackQuery):
+    await callback.message.answer(
+        "🔙 Повернення до адмін-меню",
+        reply_markup=main_menu_by_role("admin")
+    )
+    await callback.message.delete()
+    await callback.answer()
 
 @router.callback_query(F.data == "add_toolbox")
 async def add_toolbox(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminState.adding_toolbox)
-    await callback.message.answer("Введіть назву нового ящика (до 15 шт.):")
+    await callback.message.answer(
+        "Введіть назву нового ящика (до 15 шт.):\n\n_Надішліть назву або натисніть Скасувати_",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 @router.message(AdminState.adding_toolbox)
 async def save_new_toolbox(message: Message, state: FSMContext):
     name = message.text.strip()
     
+    if name.lower() == "скасувати":
+        await message.answer("❌ Додавання ящика скасовано.")
+        await state.clear()
+        await manage_boxes(message, state)
+        return
+    
     async with async_session() as session:
         count = await session.execute(select(Toolbox))
         if len(count.scalars().all()) >= 15:
             await message.answer("❌ Досягнуто ліміт (15 ящиків).")
+            await state.clear()
+            await manage_boxes(message, state)
             return
         
         existing = await session.execute(select(Toolbox).where(Toolbox.name == name))
         if existing.scalar_one_or_none():
-            await message.answer("❌ Ящик з такою назвою вже існує.")
+            await message.answer("❌ Ящик з такою назвою вже існує. Спробуйте іншу назву:")
+            return
         else:
             new_box = Toolbox(name=name)
             new_box.set_tools([])
             session.add(new_box)
             await session.commit()
-            await message.answer(f"✅ Ящик '{name}' створено.")
+            await message.answer(f"✅ Ящик '{name}' створено!")
+            
+            await manage_boxes(message, state)
     await state.clear()
 
 @router.callback_query(F.data == "delete_toolbox")
@@ -148,12 +179,23 @@ async def delete_toolbox_menu(callback: CallbackQuery):
         toolboxes = toolboxes.scalars().all()
         
         if not toolboxes:
-            await callback.message.answer("❌ Немає ящиків.")
+            await callback.message.answer("❌ Немає ящиків для видалення.")
             await callback.answer()
             return
         
         buttons = [[InlineKeyboardButton(text=tb.name, callback_data=f"delbox_{tb.id}")] for tb in toolboxes]
-        await callback.message.answer("Оберіть ящик для видалення:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes_menu")])
+        
+        await callback.message.answer(
+            "🗑️ Оберіть ящик для видалення:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_boxes_menu")
+async def back_to_boxes_menu(callback: CallbackQuery, state: FSMContext):
+    await manage_boxes(callback.message, state)
+    await callback.message.delete()
     await callback.answer()
 
 @router.callback_query(F.data.startswith("delbox_"))
@@ -171,6 +213,7 @@ async def confirm_delete_box(callback: CallbackQuery):
             await session.execute(delete(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
             await session.commit()
             await callback.message.answer(f"🗑️ Ящик '{toolbox.name}' видалено.")
+            await manage_boxes(callback.message, FSMContext())
         else:
             await callback.message.answer("❌ Ящик не знайдено.")
     await callback.answer()
@@ -227,19 +270,4 @@ async def global_stats(message: Message):
         stats += f"\n🔧 **Статистика перевірок:**\n"
         stats += f"│   Всього перевірок: {len(checks)}\n"
         
-        if checks:
-            last_checks = await session.execute(
-                select(ToolCheck).order_by(ToolCheck.timestamp.desc()).limit(5)
-            )
-            last_checks = last_checks.scalars().all()
-            
-            stats += f"│\n│   🕐 **Останні 5 перевірок:**\n"
-            for ch in last_checks:
-                box = await session.get(Toolbox, ch.toolbox_id)
-                box_name = box.name if box else "Невідомо"
-                user = await session.get(User, ch.user_id)
-                user_name = user.full_name if user else "Невідомо"
-                status_icon = "✅" if ch.is_present else "❌"
-                stats += f"│      • {box_name} ─ {ch.tool_name}: {status_icon} ({user_name})\n"
-        
-        await message.answer(stats, parse_mode="Markdown")
+       
