@@ -1,189 +1,100 @@
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select, delete
-from database import async_session
-from models import User, Toolbox, ToolCheck, BoxStatus
-from config import ADMIN_IDS
-from handlers.common import active_role
-from keyboards import main_menu_by_role, toolboxes_list_kb
-
-router = Router()
-
-class AdminState(StatesGroup):
-    adding_toolbox = State()
-    setting_role_user_id = State()
-    setting_role = State()
-
-def safe_int(value, default=None):
-    try:
-        return int(value)
-    except (ValueError, TypeError, IndexError):
-        return default
-
-def admin_manage_boxes_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Додати ящик", callback_data="add_toolbox")],
-        [InlineKeyboardButton(text="❌ Видалити ящик", callback_data="delete_toolbox")],
-        [InlineKeyboardButton(text="🔙 Назад до меню", callback_data="back_to_admin_menu")]
-    ])
-
-@router.message(F.text == "👥 Керування ролями")
-async def manage_roles(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("⛔ Доступ заборонено.")
-        return
-    await state.set_state(AdminState.setting_role_user_id)
-    await message.answer("Введіть Telegram ID користувача:")
-
-@router.message(AdminState.setting_role_user_id)
-async def get_user_for_role(message: Message, state: FSMContext):
-    try:
-        telegram_id = int(message.text)
-        async with async_session() as session:
-            user = await session.execute(select(User).where(User.telegram_id == telegram_id))
-            user = user.scalar_one_or_none()
-            if not user:
-                await message.answer("❌ Користувача не знайдено.")
-                return
-            await state.update_data(target_user_id=user.id)
-            
-            buttons = []
-            for role in ["operator", "mechanic", "admin"]:
-                if user.has_role(role):
-                    buttons.append([InlineKeyboardButton(text=f"✅ {role} (видалити)", callback_data=f"remove_role_{role}")])
-                else:
-                    buttons.append([InlineKeyboardButton(text=f"➕ {role} (додати)", callback_data=f"add_role_{role}")])
-            
-            await message.answer(
-                f"👤 {user.full_name}\nПоточні ролі: {', '.join(user.role_list)}\nОберіть дію:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+@router.callback_query(F.data == "skip_photo")
+async def skip_photo(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    results = data.get("results", [])
+    toolbox_id = data["toolbox_id"]
+    
+    async with async_session() as session:
+        user = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        user = user.scalar_one()
+        
+        all_present = True
+        for res in results:
+            check = ToolCheck(
+                toolbox_id=toolbox_id,
+                user_id=user.id,
+                tool_name=res["tool"],
+                is_present=res["present"],
+                comment=res.get("comment", ""),
+                photo_path=None
             )
-            await state.set_state(AdminState.setting_role)
-    except ValueError:
-        await message.answer("❌ Невірний ID. Введіть число.")
-
-@router.callback_query(F.data.startswith("add_role_"))
-async def add_user_role(callback: CallbackQuery, state: FSMContext):
-    role_name = callback.data.split("_")[2]
-    data = await state.get_data()
-    user_id = data.get("target_user_id")
-    
-    async with async_session() as session:
-        user = await session.get(User, user_id)
-        if user and not user.has_role(role_name):
-            user.add_role(role_name)
-            await session.commit()
-            await callback.message.answer(f"✅ Додано роль '{role_name}' для {user.full_name}.")
-        else:
-            await callback.answer("⚠️ Роль вже є.")
-    await callback.answer()
-    await get_user_for_role(callback.message, state)
-
-@router.callback_query(F.data.startswith("remove_role_"))
-async def remove_user_role(callback: CallbackQuery, state: FSMContext):
-    role_name = callback.data.split("_")[2]
-    data = await state.get_data()
-    user_id = data.get("target_user_id")
-    
-    async with async_session() as session:
-        user = await session.get(User, user_id)
-        if user and user.has_role(role_name):
-            if len(user.role_list) <= 1:
-                await callback.answer("❌ Не можна видалити останню роль.", show_alert=True)
-                return
-            user.remove_role(role_name)
-            await session.commit()
-            await callback.message.answer(f"🗑️ Видалено роль '{role_name}' у {user.full_name}.")
-        else:
-            await callback.answer("⚠️ Ролі немає.")
-    await callback.answer()
-    await get_user_for_role(callback.message, state)
-
-@router.message(F.text == "📦 Керування ящиками")
-async def manage_boxes(message: Message, state: FSMContext):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("⛔ Доступ заборонено.")
-        return
-    
-    async with async_session() as session:
-        toolboxes = await session.execute(select(Toolbox))
-        toolboxes = toolboxes.scalars().all()
+            session.add(check)
+            if not res["present"]:
+                all_present = False
         
-        if toolboxes:
-            await message.answer("📋 Список ящиків:", reply_markup=toolboxes_list_kb(toolboxes, "adminbox"))
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        box_status = result.scalar_one_or_none()
+        if not box_status:
+            box_status = BoxStatus(toolbox_id=toolbox_id)
+            session.add(box_status)
         
-        await message.answer(
-            "🔧 **Керування ящиками**\n\n"
-            "Оберіть дію:",
-            reply_markup=admin_manage_boxes_kb(),
-            parse_mode="Markdown"
-        )
-
-@router.callback_query(F.data == "back_to_admin_menu")
-async def back_to_admin_menu(callback: CallbackQuery):
+        box_status.last_check_time = datetime.utcnow()
+        box_status.last_check_user = user.id
+        box_status.is_complete = all_present
+        
+        await session.commit()
+    
+    total = len(results)
+    present_count = sum(1 for r in results if r["present"])
+    result_text = f"✅ Перевірку завершено!\n\n✅ Є: {present_count}/{total}\n❌ Відсутні: {total - present_count}/{total}"
+    
     await callback.message.answer(
-        "🔙 Повернення до адмін-меню",
-        reply_markup=main_menu_by_role("admin")
+        result_text,
+        reply_markup=main_menu_by_role(active_role.get(callback.from_user.id, "operator"))
     )
-    await callback.message.delete()
-    await callback.answer()
-
-@router.callback_query(F.data == "add_toolbox")
-async def add_toolbox(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(AdminState.adding_toolbox)
-    await callback.message.answer(
-        "Введіть назву нового ящика (до 15 шт.):\n\n_Надішліть назву або натисніть Скасувати_",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-@router.message(AdminState.adding_toolbox)
-async def save_new_toolbox(message: Message, state: FSMContext):
-    name = message.text.strip()
-    
-    if name.lower() == "скасувати":
-        await message.answer("❌ Додавання ящика скасовано.")
-        await state.clear()
-        await manage_boxes(message, state)
-        return
-    
-    async with async_session() as session:
-        count = await session.execute(select(Toolbox))
-        if len(count.scalars().all()) >= 15:
-            await message.answer("❌ Досягнуто ліміт (15 ящиків).")
-            await state.clear()
-            await manage_boxes(message, state)
-            return
-        
-        existing = await session.execute(select(Toolbox).where(Toolbox.name == name))
-        if existing.scalar_one_or_none():
-            await message.answer("❌ Ящик з такою назвою вже існує. Спробуйте іншу назву:")
-            return
-        else:
-            new_box = Toolbox(name=name)
-            new_box.set_tools([])
-            session.add(new_box)
-            await session.commit()
-            await message.answer(f"✅ Ящик '{name}' створено!")
-            
-            await manage_boxes(message, state)
     await state.clear()
+    await callback.answer()
 
-@router.callback_query(F.data == "delete_toolbox")
-async def delete_toolbox_menu(callback: CallbackQuery):
+@router.message(CheckState.photo)
+async def save_photo_and_check(message: Message, state: FSMContext):
+    photo_path = None
+    if message.photo:
+        photo = message.photo[-1]
+        file = await message.bot.get_file(photo.file_id)
+        os.makedirs("media", exist_ok=True)
+        photo_path = f"media/{file.file_id}.jpg"
+        await message.bot.download_file(file.file_path, photo_path)
+    
+    data = await state.get_data()
+    results = data.get("results", [])
+    toolbox_id = data["toolbox_id"]
+    
     async with async_session() as session:
-        toolboxes = await session.execute(select(Toolbox))
-        toolboxes = toolboxes.scalars().all()
+        user = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+        user = user.scalar_one()
         
-        if not toolboxes:
-            await callback.message.answer("❌ Немає ящиків для видалення.")
-            await callback.answer()
-            return
+        all_present = True
+        for res in results:
+            check = ToolCheck(
+                toolbox_id=toolbox_id,
+                user_id=user.id,
+                tool_name=res["tool"],
+                is_present=res["present"],
+                comment=res.get("comment", ""),
+                photo_path=photo_path
+            )
+            session.add(check)
+            if not res["present"]:
+                all_present = False
         
-        buttons = [[InlineKeyboardButton(text=tb.name, callback_data=f"delbox_{tb.id}")] for tb in toolboxes]
-        buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes_menu")])
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        box_status = result.scalar_one_or_none()
+        if not box_status:
+            box_status = BoxStatus(toolbox_id=toolbox_id)
+            session.add(box_status)
         
-        await callback.message.answer(
-            "🗑️ Оберіть ящик
+        box_status.last_check_time = datetime.utcnow()
+        box_status.last_check_user = user.id
+        box_status.is_complete = all_present
+        
+        await session.commit()
+    
+    total = len(results)
+    present_count = sum(1 for r in results if r["present"])
+    result_text = f"✅ Перевірку завершено!\n\n✅ Є: {present_count}/{total}\n❌ Відсутні: {total - present_count}/{total}"
+    
+    await message.answer(
+        result_text,
+        reply_markup=main_menu_by_role(active_role.get(message.from_user.id, "operator"))
+    )
+    await state.clear()
