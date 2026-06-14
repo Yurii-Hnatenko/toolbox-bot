@@ -11,6 +11,20 @@ sys.path.insert(0, os.getcwd())
 
 app = Flask(__name__)
 
+# Ініціалізуємо базу даних ПРИ СТАРТІ
+from database import init_db
+import asyncio
+
+async def init_db_on_start():
+    os.makedirs("media", exist_ok=True)
+    await init_db()
+    print("✅ База даних ініціалізована")
+
+# Виконуємо ініціалізацію при запуску
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+loop.run_until_complete(init_db_on_start())
+
 from main import bot, dp
 from aiogram.types import Update
 
@@ -18,18 +32,14 @@ from aiogram.types import Update
 def webhook():
     try:
         data = request.get_json()
-        logger.info(f"Отримано оновлення: {data}")
-        
+        logger.info(f"Отримано оновлення")
         if data:
             update = Update.model_validate(data)
             asyncio.run(dp.feed_update(bot, update))
-            logger.info("✅ Оновлення оброблено успішно")
             return 'OK', 200
         return 'No data', 400
     except Exception as e:
-        logger.error(f"❌ Помилка: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Помилка: {e}")
         return 'Error', 500
 
 @app.route('/')
