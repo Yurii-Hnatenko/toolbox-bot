@@ -8,8 +8,8 @@ def main_menu_by_role(role):
                 [KeyboardButton(text="🔧 Керування інструментами"), KeyboardButton(text="📸 Фото інструментів")],
                 [KeyboardButton(text="👥 Керування ролями"), KeyboardButton(text="📦 Керування ящиками")],
                 [KeyboardButton(text="📜 Історія моїх перевірок"), KeyboardButton(text="🏷️ Змінити користувача")],
-                [KeyboardButton(text="📊 Глобальна статистика"), KeyboardButton(text="ℹ️ Інформація")],
-                [KeyboardButton(text="🔄 Перемкнути роль")],
+                [KeyboardButton(text="📊 Глобальна статистика"), KeyboardButton(text="📊 Оновити мої ролі")],
+                [KeyboardButton(text="ℹ️ Інформація"), KeyboardButton(text="🔄 Перемкнути роль")],
             ],
             resize_keyboard=True
         )
