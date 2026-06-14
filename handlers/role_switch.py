@@ -47,7 +47,6 @@ async def set_active_role(callback: CallbackQuery):
         result = await session.execute(select(User).where(User.telegram_id == user_id))
         user = result.scalar_one()
         
-        # Редагуємо поточне повідомлення замість створення нового
         await callback.message.edit_text(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
             f"Ваше меню оновлено. Натисніть кнопку нижче:",
