@@ -17,7 +17,6 @@ class AdminState(StatesGroup):
     setting_role = State()
 
 def safe_int(value, default=None):
-    """Безпечне перетворення на int"""
     try:
         return int(value)
     except (ValueError, TypeError, IndexError):
@@ -187,102 +186,4 @@ async def delete_toolbox_menu(callback: CallbackQuery):
         buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes_menu")])
         
         await callback.message.answer(
-            "🗑️ Оберіть ящик для видалення:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-        )
-    await callback.answer()
-
-@router.callback_query(F.data == "back_to_boxes_menu")
-async def back_to_boxes_menu(callback: CallbackQuery, state: FSMContext):
-    await manage_boxes(callback.message, state)
-    await callback.message.delete()
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("delbox_"))
-async def confirm_delete_box(callback: CallbackQuery):
-    toolbox_id = safe_int(callback.data.split("_")[1])
-    if toolbox_id is None:
-        await callback.answer("Помилка: невірний формат даних")
-        return
-    
-    async with async_session() as session:
-        toolbox = await session.get(Toolbox, toolbox_id)
-        if toolbox:
-            await session.delete(toolbox)
-            await session.execute(delete(ToolCheck).where(ToolCheck.toolbox_id == toolbox_id))
-            await session.execute(delete(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-            await session.commit()
-            await callback.message.answer(f"🗑️ Ящик '{toolbox.name}' видалено.")
-            await manage_boxes(callback.message, FSMContext())
-        else:
-            await callback.message.answer("❌ Ящик не знайдено.")
-    await callback.answer()
-
-@router.message(F.text == "📊 Глобальна статистика")
-async def global_stats(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("⛔ Доступ заборонено")
-        return
-    
-    async with async_session() as session:
-        users = await session.execute(select(User))
-        users = users.scalars().all()
-        checks = await session.execute(select(ToolCheck))
-        checks = checks.scalars().all()
-        boxes = await session.execute(select(Toolbox))
-        boxes = boxes.scalars().all()
-        
-        complete_count = 0
-        incomplete_boxes = []
-        
-        for box in boxes:
-            status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
-            status = status.scalar_one_or_none()
-            if status and status.is_complete:
-                complete_count += 1
-            else:
-                incomplete_boxes.append(box.name)
-        
-        stats = "📊 **ГЛОБАЛЬНА СТАТИСТИКА СИСТЕМИ**\n"
-        stats += "━" * 30 + "\n\n"
-        
-        stats += f"👥 **Користувачі:**\n"
-        stats += f"│   Всього: {len(users)}\n"
-        
-        admin_count = sum(1 for u in users if "admin" in u.role_list)
-        mechanic_count = sum(1 for u in users if "mechanic" in u.role_list)
-        operator_count = sum(1 for u in users if "operator" in u.role_list)
-        
-        stats += f"│   👑 Адміністраторів: {admin_count}\n"
-        stats += f"│   🔧 Механіків: {mechanic_count}\n"
-        stats += f"│   👤 Операторів: {operator_count}\n\n"
-        
-        stats += f"📦 **Інструментальні ящики:**\n"
-        stats += f"│   Всього: {len(boxes)} / 15\n"
-        stats += f"│   ✅ Комплектних: {complete_count}\n"
-        stats += f"│   ❌ Не комплектних: {len(boxes) - complete_count}\n"
-        
-        if incomplete_boxes:
-            stats += f"│\n│   ⚠️ **Не комплектні ящики:**\n"
-            for box_name in incomplete_boxes:
-                stats += f"│      • {box_name}\n"
-        
-        stats += f"\n🔧 **Статистика перевірок:**\n"
-        stats += f"│   Всього перевірок: {len(checks)}\n"
-        
-        if checks:
-            last_checks = await session.execute(
-                select(ToolCheck).order_by(ToolCheck.timestamp.desc()).limit(5)
-            )
-            last_checks = last_checks.scalars().all()
-            
-            stats += f"│\n│   🕐 **Останні 5 перевірок:**\n"
-            for ch in last_checks:
-                box = await session.get(Toolbox, ch.toolbox_id)
-                box_name = box.name if box else "Невідомо"
-                user = await session.get(User, ch.user_id)
-                user_name = user.full_name if user else "Невідомо"
-                status_icon = "✅" if ch.is_present else "❌"
-                stats += f"│      • {box_name} ─ {ch.tool_name}: {status_icon} ({user_name})\n"
-        
-        await message.answer(stats, parse_mode="Markdown")
+            "🗑️ Оберіть ящик
