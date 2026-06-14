@@ -8,7 +8,9 @@ from models import User, Toolbox, ToolCheck, BoxStatus
 from config import ADMIN_IDS
 from handlers.common import active_role
 from keyboards import main_menu_by_role, toolboxes_list_kb
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 class AdminState(StatesGroup):
@@ -273,21 +275,4 @@ async def global_stats(message: Message):
                 stats += f"│      • {box_name}\n"
         
         stats += f"\n🔧 **Статистика перевірок:**\n"
-        stats += f"│   Всього перевірок: {len(checks)}\n"
-        
-        if checks:
-            last_checks = await session.execute(
-                select(ToolCheck).order_by(ToolCheck.timestamp.desc()).limit(5)
-            )
-            last_checks = last_checks.scalars().all()
-            
-            stats += f"│\n│   🕐 **Останні 5 перевірок:**\n"
-            for ch in last_checks:
-                box = await session.get(Toolbox, ch.toolbox_id)
-                box_name = box.name if box else "Невідомо"
-                user = await session.get(User, ch.user_id)
-                user_name = user.full_name if user else "Невідомо"
-                status_icon = "✅" if ch.is_present else "❌"
-                stats += f"│      • {box_name} ─ {ch.tool_name}: {status_icon} ({user_name})\n"
-        
-        await message.answer(stats, parse_mode="Markdown")
+        stats += f"│   Всього
