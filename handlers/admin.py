@@ -47,28 +47,20 @@ async def refresh_my_roles(message: Message):
             await message.answer("❌ Користувача не знайдено")
             return
         
-        # Додаємо всі ролі адміністратору
-        need_update = False
-        for role in ["admin", "mechanic", "operator"]:
-            if not user.has_role(role):
-                user.add_role(role)
-                need_update = True
+        # Примусово додаємо всі ролі адміністратору
+        user.add_role("admin")
+        user.add_role("mechanic")
+        user.add_role("operator")
+        await session.commit()
         
-        if need_update:
-            await session.commit()
-            logger.info(f"Оновлено ролі для адміна {message.from_user.id}: {user.role_list}")
-            await message.answer(f"✅ Ваші ролі оновлено!\n\n📋 Ваші ролі: {', '.join(user.role_list)}")
-        else:
-            await message.answer(f"✅ Ваші ролі вже актуальні:\n\n📋 Ваші ролі: {', '.join(user.role_list)}")
+        logger.info(f"Оновлено ролі для адміна {message.from_user.id}: {user.role_list}")
         
         # Оновлюємо активну роль
-        if message.from_user.id in active_role:
-            if active_role[message.from_user.id] not in user.role_list:
-                active_role[message.from_user.id] = user.primary_role
-        else:
-            active_role[message.from_user.id] = user.primary_role
+        active_role[message.from_user.id] = user.primary_role
         
         await message.answer(
+            f"✅ Ваші ролі оновлено!\n\n"
+            f"📋 Ваші ролі: {', '.join(user.role_list)}\n"
             f"⭐ Активна роль: {active_role.get(message.from_user.id, user.primary_role).capitalize()}",
             reply_markup=main_menu_by_role(active_role.get(message.from_user.id, user.primary_role))
         )
