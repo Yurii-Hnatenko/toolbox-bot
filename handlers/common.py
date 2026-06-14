@@ -8,6 +8,8 @@ from config import ADMIN_IDS
 from sqlalchemy import select
 
 router = Router()
+
+# Глобальний словник для зберігання активної ролі для кожного користувача
 active_role = {}
 
 @router.message(Command("start"))
@@ -15,11 +17,14 @@ async def cmd_start(message: Message):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
         user = result.scalar_one_or_none()
+        
         if not user:
+            # Новий користувач
             if message.from_user.id in ADMIN_IDS:
                 role = "admin,mechanic,operator"
             else:
                 role = "operator"
+            
             user = User(
                 telegram_id=message.from_user.id,
                 username=message.from_user.username or "",
@@ -28,16 +33,46 @@ async def cmd_start(message: Message):
             )
             session.add(user)
             await session.commit()
+        
+        # Встановлюємо активну роль, якщо ще не встановлена
         if message.from_user.id not in active_role:
             active_role[message.from_user.id] = user.primary_role
+        
         await message.answer(
-            f"👋 Вітаю, {message.from_user.full_name}!\nВаші ролі: {', '.join(user.role_list)}\nАктивна роль: {active_role.get(message.from_user.id, user.primary_role)}",
+            f"👋 Вітаю, {message.from_user.full_name}!\n\n"
+            f"📋 Ваші ролі: {', '.join(user.role_list)}\n"
+            f"⭐ Активна роль: {active_role.get(message.from_user.id, user.primary_role).capitalize()}\n\n"
+            f"Оберіть дію з меню:",
             reply_markup=main_menu_by_role(active_role.get(message.from_user.id, user.primary_role))
         )
+
 
 @router.message(F.text == "ℹ️ Інформація")
 async def info(message: Message):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
         user = result.scalar_one()
-        await message.answer(f"👤 Інформація\nІм'я: {user.full_name}\nID: {user.telegram_id}\nРолі: {', '.join(user.role_list)}\nАктивна роль: {active_role.get(message.from_user.id, user.primary_role)}")
+        
+        await message.answer(
+            f"👤 **Інформація про користувача**\n\n"
+            f"📛 Ім'я: {user.full_name}\n"
+            f"🆔 Telegram ID: {user.telegram_id}\n"
+            f"🔧 Всі ролі: {', '.join(user.role_list)}\n"
+            f"⚡ Активна роль: {active_role.get(message.from_user.id, user.primary_role).capitalize()}\n"
+            f"📅 ID в системі: {user.id}",
+            parse_mode="Markdown"
+        )
+
+
+@router.message(F.text == "🔙 На головну")
+async def back_to_main(message: Message):
+    """Повернення до головного меню"""
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+        user = result.scalar_one()
+        current_role = active_role.get(message.from_user.id, user.primary_role)
+        
+        await message.answer(
+            "🔙 Повернення до головного меню:",
+            reply_markup=main_menu_by_role(current_role)
+        )
