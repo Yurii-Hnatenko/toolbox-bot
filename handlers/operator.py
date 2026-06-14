@@ -27,7 +27,7 @@ async def select_toolbox(message: Message, state: FSMContext):
             await message.answer("❌ Немає створених ящиків.")
             return
         await state.set_state(CheckState.selecting_toolbox)
-        await message.answer("Оберіть ящик:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
+        await message.answer("Оберіть ящик для перевірки:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
 
 @router.callback_query(F.data.startswith("check_"))
 async def start_check(callback: CallbackQuery, state: FSMContext):
