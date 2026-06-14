@@ -12,6 +12,7 @@ class User(Base):
     username = Column(String)
     full_name = Column(String)
     role = Column(String, default="operator")
+    last_version = Column(String, default="1.0.0")
     
     @property
     def role_list(self):
@@ -24,6 +25,20 @@ class User(Base):
         elif "mechanic" in self.role_list:
             return "mechanic"
         return "operator"
+    
+    def has_role(self, role_name):
+        return role_name in self.role_list
+    
+    def add_role(self, role_name):
+        if not self.has_role(role_name):
+            roles = self.role_list
+            roles.append(role_name)
+            self.role = ",".join(roles)
+    
+    def remove_role(self, role_name):
+        if self.has_role(role_name):
+            roles = [r for r in self.role_list if r != role_name]
+            self.role = ",".join(roles) if roles else "operator"
 
 class Toolbox(Base):
     __tablename__ = "toolboxes"
@@ -36,6 +51,15 @@ class Toolbox(Base):
     
     def set_tools(self, tools):
         self.tools_json = json.dumps(tools, ensure_ascii=False)
+
+class ToolImage(Base):
+    __tablename__ = "tool_images"
+    id = Column(Integer, primary_key=True)
+    toolbox_id = Column(Integer, ForeignKey("toolboxes.id"))
+    tool_name = Column(String)
+    photo_path = Column(String)
+    uploaded_by = Column(Integer)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
 
 class ToolCheck(Base):
     __tablename__ = "tool_checks"
