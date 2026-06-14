@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from database import async_session
 from models import User
 from keyboards import main_menu_by_role
@@ -47,8 +47,7 @@ async def set_active_role(callback: CallbackQuery):
         result = await session.execute(select(User).where(User.telegram_id == user_id))
         user = result.scalar_one()
         
-        # Використовуємо REPLY KEYBOARD (звичайну клавіатуру) для нового меню
-        # Тому НЕ використовуємо edit_text з reply_markup, а надсилаємо нове повідомлення
+        # Надсилаємо нове повідомлення замість редагування
         await callback.message.answer(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
             f"Ваше меню оновлено:",
@@ -56,7 +55,7 @@ async def set_active_role(callback: CallbackQuery):
             parse_mode="Markdown"
         )
         
-        # Видаляємо старе повідомлення з кнопками вибору ролі
+        # Спроба видалити старе повідомлення (не критично, якщо не вийде)
         try:
             await callback.message.delete()
         except Exception:
