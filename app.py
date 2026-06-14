@@ -4,14 +4,12 @@ import asyncio
 from flask import Flask, request
 from aiogram.types import Update
 
-# Додаємо шлях до проекту
 sys.path.insert(0, os.getcwd())
 
 app = Flask(__name__)
 
-# Імпортуємо бота
+# Імпортуємо бота з main.py
 from main import bot, dp
-from config import BOT_TOKEN
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
