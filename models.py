@@ -13,11 +13,11 @@ class User(Base):
     full_name = Column(String)
     role = Column(String, default="operator")
     last_version = Column(String, default="1.0.0")
-
+    
     @property
     def role_list(self):
         return self.role.split(",") if self.role else ["operator"]
-
+    
     @property
     def primary_role(self):
         if "admin" in self.role_list:
@@ -25,16 +25,16 @@ class User(Base):
         elif "mechanic" in self.role_list:
             return "mechanic"
         return "operator"
-
+    
     def has_role(self, role_name):
         return role_name in self.role_list
-
+    
     def add_role(self, role_name):
         if not self.has_role(role_name):
             roles = self.role_list
             roles.append(role_name)
             self.role = ",".join(roles)
-
+    
     def remove_role(self, role_name):
         if self.has_role(role_name):
             roles = [r for r in self.role_list if r != role_name]
@@ -45,10 +45,10 @@ class Toolbox(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
     tools_json = Column(Text, default="[]")
-
+    
     def get_tools(self):
         return json.loads(self.tools_json)
-
+    
     def set_tools(self, tools):
         self.tools_json = json.dumps(tools, ensure_ascii=False)
 
