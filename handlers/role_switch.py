@@ -14,34 +14,19 @@ async def switch_role_menu(message: Message):
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
         user = result.scalar_one()
         roles = user.role_list
-        
         if len(roles) <= 1:
-            await message.answer("❌ У вас лише одна роль. Немає куди перемикатись.")
+            await message.answer("❌ У вас лише одна роль.")
             return
-        
-        buttons = []
-        for role in roles:
-            current_active = active_role.get(message.from_user.id, user.primary_role)
-            if role == current_active:
-                buttons.append([InlineKeyboardButton(text=f"✅ {role.capitalize()} (активна)", callback_data=f"switch_role_{role}")])
-            else:
-                buttons.append([InlineKeyboardButton(text=f"🔄 {role.capitalize()}", callback_data=f"switch_role_{role}")])
-        
-        kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await message.answer(f"Оберіть роль для роботи:", reply_markup=kb)
+        buttons = [[InlineKeyboardButton(text=f"✅ {r.capitalize()}" if r == active_role.get(message.from_user.id) else f"🔄 {r.capitalize()}", callback_data=f"switch_role_{r}")] for r in roles]
+        await message.answer("Оберіть роль:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 @router.callback_query(F.data.startswith("switch_role_"))
 async def set_active_role(callback: CallbackQuery):
     new_role = callback.data.split("_")[2]
-    user_id = callback.from_user.id
-    active_role[user_id] = new_role
-    
+    active_role[callback.from_user.id] = new_role
     async with async_session() as session:
-        result = await session.execute(select(User).where(User.telegram_id == user_id))
+        result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
         user = result.scalar_one()
-        await callback.message.answer(
-            f"✅ Активну роль змінено на: {new_role.capitalize()}",
-            reply_markup=main_menu_by_role(new_role)
-        )
+        await callback.message.answer(f"✅ Активну роль змінено на: {new_role.capitalize()}", reply_markup=main_menu_by_role(new_role))
         await callback.message.delete()
     await callback.answer()
