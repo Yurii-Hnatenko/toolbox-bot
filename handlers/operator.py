@@ -33,7 +33,7 @@ async def select_toolbox(message: Message, state: FSMContext):
         toolboxes = await session.execute(select(Toolbox))
         toolboxes = toolboxes.scalars().all()
         if not toolboxes:
-            await message.answer("❌ Немає створених ящиків. Зверніться до адміністратора.")
+            await message.answer("❌ Немає створених ящиків.")
             return
         await state.set_state(CheckState.selecting_toolbox)
         await message.answer("Оберіть ящик для перевірки:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
@@ -56,7 +56,7 @@ async def start_check(callback: CallbackQuery, state: FSMContext):
         
         tools = toolbox.get_tools()
         if not tools:
-            await callback.message.answer(f"❌ У ящику '{toolbox.name}' немає інструментів. Механік має їх додати.")
+            await callback.message.answer(f"❌ У ящику '{toolbox.name}' немає інструментів.")
             await callback.answer()
             return
         
@@ -70,7 +70,7 @@ async def start_check(callback: CallbackQuery, state: FSMContext):
         
         await callback.message.answer(
             f"🔧 **Ящик:** {toolbox.name}\n"
-            f"📌 **Інструмент {1}/{len(tools)}:** {tools[0]}\n\n"
+            f"📌 **Інструмент 1/{len(tools)}:** {tools[0]}\n\n"
             f"Оберіть статус:",
             reply_markup=kb,
             parse_mode="Markdown"
@@ -178,12 +178,12 @@ async def process_comment(message: Message, state: FSMContext):
 @router.callback_query(F.data == "skip_photo")
 async def skip_photo(callback: CallbackQuery, state: FSMContext):
     """Пропуск фото - ВИПРАВЛЕНО"""
-    # Відповідаємо одразу, щоб кнопка не зависала
-    await callback.answer("Зберігаю результати...")
+    # Спочатку відповідаємо, щоб кнопка не зависала
+    await callback.answer("Зберігаю результати перевірки...")
     
     data = await state.get_data()
     results = data.get("results", [])
-    toolbox_id = data["toolbox_id"]
+    toolbox_id = data.get("toolbox_id")
     
     if not results:
         await callback.message.answer("❌ Немає даних про перевірку. Спробуйте ще раз.")
@@ -192,15 +192,32 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
     
     try:
         async with async_session() as session:
-            # Отримуємо користувача
-            result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
-            user = result.scalar_one_or_none()
+            # Отримуємо користувача за telegram_id
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == callback.from_user.id)
+            )
+            user = user_result.scalar_one_or_none()
             
             if not user:
-                await callback.message.answer("❌ Користувача не знайдено")
+                # Якщо користувача немає в БД, створюємо нового
+                user = User(
+                    telegram_id=callback.from_user.id,
+                    username=callback.from_user.username or "",
+                    full_name=callback.from_user.full_name or "Користувач",
+                    role="operator"
+                )
+                session.add(user)
+                await session.commit()
+                logger.info(f"Створено нового користувача: {user.telegram_id}")
+            
+            # Отримуємо ящик для перевірки
+            toolbox = await session.get(Toolbox, toolbox_id)
+            if not toolbox:
+                await callback.message.answer("❌ Ящик не знайдено")
                 await state.clear()
                 return
             
+            # Зберігаємо результати перевірок
             all_present = True
             for res in results:
                 check = ToolCheck(
@@ -216,7 +233,9 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
                     all_present = False
             
             # Оновлюємо статус ящика
-            box_status_result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+            box_status_result = await session.execute(
+                select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id)
+            )
             box_status = box_status_result.scalar_one_or_none()
             if not box_status:
                 box_status = BoxStatus(toolbox_id=toolbox_id)
@@ -228,22 +247,29 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
             
             await session.commit()
         
+        # Формуємо звіт
         total = len(results)
         present_count = sum(1 for r in results if r["present"])
         missing_count = total - present_count
         
-        result_text = f"✅ **Перевірку завершено!**\n\n"
-        result_text += f"📊 **Результати:**\n"
-        result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
-        result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
+        # Отримуємо назву ящика
+        toolbox_name = toolbox.name if toolbox else "Невідомий ящик"
+        
+        result_text = f"📋 **Результати перевірки ящика \"{toolbox_name}\"**\n"
+        result_text += "━" * 30 + "\n\n"
+        result_text += f"📊 **Загальна статистика:**\n"
+        result_text += f"│   ✅ Присутні: {present_count}/{total}\n"
+        result_text += f"│   ❌ Відсутні: {missing_count}/{total}\n"
         
         if missing_count > 0:
-            result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+            result_text += f"\n⚠️ **Список відсутніх інструментів:**\n"
             for r in results:
                 if not r["present"]:
-                    result_text += f"   • {r['tool']}\n"
+                    result_text += f"│   • {r['tool']}\n"
                     if r.get("comment"):
-                        result_text += f"     📝 {r['comment']}\n"
+                        result_text += f"│     📝 {r['comment']}\n"
+        
+        result_text += f"\n✅ Перевірку завершено!"
         
         await callback.message.answer(
             result_text,
@@ -269,7 +295,7 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     data = await state.get_data()
     results = data.get("results", [])
-    toolbox_id = data["toolbox_id"]
+    toolbox_id = data.get("toolbox_id")
     
     if not results:
         await message.answer("❌ Немає даних про перевірку. Спробуйте ще раз.")
@@ -278,14 +304,32 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     try:
         async with async_session() as session:
-            user_result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+            # Отримуємо користувача
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == message.from_user.id)
+            )
             user = user_result.scalar_one_or_none()
             
             if not user:
-                await message.answer("❌ Користувача не знайдено")
+                # Якщо користувача немає в БД, створюємо нового
+                user = User(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username or "",
+                    full_name=message.from_user.full_name or "Користувач",
+                    role="operator"
+                )
+                session.add(user)
+                await session.commit()
+                logger.info(f"Створено нового користувача: {user.telegram_id}")
+            
+            # Отримуємо ящик
+            toolbox = await session.get(Toolbox, toolbox_id)
+            if not toolbox:
+                await message.answer("❌ Ящик не знайдено")
                 await state.clear()
                 return
             
+            # Зберігаємо результати
             all_present = True
             for res in results:
                 check = ToolCheck(
@@ -300,7 +344,10 @@ async def save_photo_and_check(message: Message, state: FSMContext):
                 if not res["present"]:
                     all_present = False
             
-            box_status_result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+            # Оновлюємо статус ящика
+            box_status_result = await session.execute(
+                select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id)
+            )
             box_status = box_status_result.scalar_one_or_none()
             if not box_status:
                 box_status = BoxStatus(toolbox_id=toolbox_id)
@@ -312,23 +359,28 @@ async def save_photo_and_check(message: Message, state: FSMContext):
             
             await session.commit()
         
+        # Формуємо звіт
         total = len(results)
         present_count = sum(1 for r in results if r["present"])
         missing_count = total - present_count
         
-        result_text = f"✅ **Перевірку завершено!**\n\n"
-        result_text += f"📊 **Результати:**\n"
-        result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
-        result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
+        toolbox_name = toolbox.name if toolbox else "Невідомий ящик"
+        
+        result_text = f"📋 **Результати перевірки ящика \"{toolbox_name}\"**\n"
+        result_text += "━" * 30 + "\n\n"
+        result_text += f"📊 **Загальна статистика:**\n"
+        result_text += f"│   ✅ Присутні: {present_count}/{total}\n"
+        result_text += f"│   ❌ Відсутні: {missing_count}/{total}\n"
         
         if missing_count > 0:
-            result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+            result_text += f"\n⚠️ **Список відсутніх інструментів:**\n"
             for r in results:
                 if not r["present"]:
-                    result_text += f"   • {r['tool']}\n"
+                    result_text += f"│   • {r['tool']}\n"
                     if r.get("comment"):
-                        result_text += f"     📝 {r['comment']}\n"
+                        result_text += f"│     📝 {r['comment']}\n"
         
+        result_text += f"\n✅ Перевірку завершено!"
         if photo_path:
             result_text += f"\n📸 Фото збережено!"
         
@@ -347,12 +399,21 @@ async def save_photo_and_check(message: Message, state: FSMContext):
 @router.message(F.text == "📜 Історія моїх перевірок")
 async def my_history(message: Message):
     async with async_session() as session:
-        user_result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
         user = user_result.scalar_one_or_none()
         
         if not user:
-            await message.answer("❌ Користувача не знайдено")
-            return
+            # Якщо користувача немає в БД, створюємо нового
+            user = User(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username or "",
+                full_name=message.from_user.full_name or "Користувач",
+                role="operator"
+            )
+            session.add(user)
+            await session.commit()
         
         checks = await session.execute(
             select(ToolCheck).where(ToolCheck.user_id == user.id)
