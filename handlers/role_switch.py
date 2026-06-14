@@ -4,11 +4,9 @@ from database import async_session
 from models import User
 from keyboards import main_menu_by_role
 from sqlalchemy import select
+from handlers.common import active_role
 
 router = Router()
-
-# Словник для зберігання активної ролі
-active_role = {}
 
 @router.message(F.text == "🔄 Перемкнути роль")
 async def switch_role_menu(message: Message):
@@ -21,7 +19,6 @@ async def switch_role_menu(message: Message):
             await message.answer("❌ У вас лише одна роль. Немає куди перемикатись.")
             return
         
-        # Отримуємо поточну активну роль
         current_role = active_role.get(message.from_user.id, user.primary_role)
         
         buttons = []
@@ -44,25 +41,31 @@ async def set_active_role(callback: CallbackQuery):
     new_role = callback.data.split("_")[2]
     user_id = callback.from_user.id
     
-    # Змінюємо активну роль
     active_role[user_id] = new_role
     
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == user_id))
         user = result.scalar_one()
         
-        # Надсилаємо нове повідомлення з оновленим меню
-        await callback.message.answer(
+        # Редагуємо поточне повідомлення замість створення нового
+        await callback.message.edit_text(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
-            f"Ваше меню оновлено.",
-            reply_markup=main_menu_by_role(new_role),
+            f"Ваше меню оновлено. Натисніть кнопку нижче:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Показати меню", callback_data="show_menu")]
+            ]),
             parse_mode="Markdown"
         )
         
-        # Видаляємо старе повідомлення з кнопками
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass  # Якщо не вдалося видалити, ігноруємо
-        
+    await callback.answer()
+
+@router.callback_query(F.data == "show_menu")
+async def show_menu(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    current_role = active_role.get(user_id, "operator")
+    
+    await callback.message.edit_text(
+        f"🔧 Ваше меню (роль: {current_role.capitalize()})",
+        reply_markup=main_menu_by_role(current_role)
+    )
     await callback.answer()
