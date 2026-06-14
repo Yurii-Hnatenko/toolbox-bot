@@ -35,7 +35,5 @@ def main_menu_by_role(role):
         )
 
 def toolboxes_list_kb(toolboxes, prefix="check"):
-    buttons = []
-    for tb in toolboxes:
-        buttons.append([InlineKeyboardButton(text=tb.name, callback_data=f"{prefix}_{tb.id}")])
+    buttons = [[InlineKeyboardButton(text=tb.name, callback_data=f"{prefix}_{tb.id}")] for tb in toolboxes]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
