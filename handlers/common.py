@@ -55,7 +55,7 @@ async def info(message: Message):
         user = result.scalar_one_or_none()
         
         if not user:
-            await message.answer("❌ Користувача не знайдено")
+            await message.answer("❌ Користувача не знайдено. Надішліть /start")
             return
         
         await message.answer(
@@ -75,7 +75,7 @@ async def back_to_main(message: Message):
         user = result.scalar_one_or_none()
         
         if not user:
-            await message.answer("❌ Користувача не знайдено")
+            await message.answer("❌ Користувача не знайдено. Надішліть /start")
             return
         
         current_role = active_role.get(message.from_user.id, user.primary_role)
