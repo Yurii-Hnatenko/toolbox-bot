@@ -54,4 +54,107 @@ async def add_user_role(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer(f"✅ Додано роль '{role_name}' для {user.full_name}.")
         else:
             await callback.answer("⚠️ Роль вже є.")
-    await callback.answer
+    await callback.answer()
+    await get_user_for_role(callback.message, state)
+
+@router.callback_query(F.data.startswith("remove_role_"))
+async def remove_user_role(callback: CallbackQuery, state: FSMContext):
+    role_name = callback.data.split("_")[2]
+    data = await state.get_data()
+    user_id = data.get("target_user_id")
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        if user and user.has_role(role_name):
+            if len(user.role_list) <= 1:
+                await callback.answer("❌ Не можна видалити останню роль.", show_alert=True)
+                return
+            user.remove_role(role_name)
+            await session.commit()
+            await callback.message.answer(f"🗑️ Видалено роль '{role_name}' у {user.full_name}.")
+        else:
+            await callback.answer("⚠️ Ролі немає.")
+    await callback.answer()
+    await get_user_for_role(callback.message, state)
+
+@router.message(F.text == "📦 Керування ящиками")
+async def manage_boxes(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Доступ заборонено.")
+        return
+    async with async_session() as session:
+        toolboxes = await session.execute(select(Toolbox))
+        toolboxes = toolboxes.scalars().all()
+        if not toolboxes:
+            await message.answer("Немає ящиків.")
+        else:
+            await message.answer("Список ящиків:", reply_markup=toolboxes_list_kb(toolboxes, "adminbox"))
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➕ Додати ящик", callback_data="add_toolbox")], [InlineKeyboardButton(text="❌ Видалити ящик", callback_data="delete_toolbox")]])
+        await message.answer("Керування:", reply_markup=kb)
+
+@router.callback_query(F.data == "add_toolbox")
+async def add_toolbox(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AdminState.adding_toolbox)
+    await callback.message.answer("Введіть назву нового ящика (до 15 шт.):")
+    await callback.answer()
+
+@router.message(AdminState.adding_toolbox)
+async def save_new_toolbox(message: Message, state: FSMContext):
+    name = message.text.strip()
+    async with async_session() as session:
+        count = await session.execute(select(Toolbox))
+        if len(count.scalars().all()) >= 15:
+            await message.answer("❌ Досягнуто ліміт (15 ящиків).")
+            return
+        existing = await session.execute(select(Toolbox).where(Toolbox.name == name))
+        if existing.scalar_one_or_none():
+            await message.answer("❌ Ящик з такою назвою вже існує.")
+        else:
+            new_box = Toolbox(name=name)
+            new_box.set_tools([])
+            session.add(new_box)
+            await session.commit()
+            await message.answer(f"✅ Ящик '{name}' створено.")
+    await state.clear()
+
+@router.callback_query(F.data == "delete_toolbox")
+async def delete_toolbox_menu(callback: CallbackQuery):
+    async with async_session() as session:
+        toolboxes = await session.execute(select(Toolbox))
+        toolboxes = toolboxes.scalars().all()
+        if not toolboxes:
+            await callback.message.answer("❌ Немає ящиків.")
+            await callback.answer()
+            return
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=tb.name, callback_data=f"delbox_{tb.id}")] for tb in toolboxes])
+        await callback.message.answer("Оберіть ящик для видалення:", reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("delbox_"))
+async def confirm_delete_box(callback: CallbackQuery):
+    toolbox_id = int(callback.data.split("_")[1])
+    async with async_session() as session:
+        toolbox = await session.get(Toolbox, toolbox_id)
+        if toolbox:
+            await session.delete(toolbox)
+            await session.execute(delete(ToolCheck).where(ToolCheck.toolbox_id == toolbox_id))
+            await session.execute(delete(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+            await session.commit()
+            await callback.message.answer(f"🗑️ Ящик '{toolbox.name}' видалено.")
+        else:
+            await callback.message.answer("❌ Ящик не знайдено.")
+    await callback.answer()
+
+@router.message(F.text == "📊 Глобальна статистика")
+async def global_stats(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Доступ заборонено.")
+        return
+    async with async_session() as session:
+        users = await session.execute(select(User))
+        users = users.scalars().all()
+        checks = await session.execute(select(ToolCheck))
+        checks = checks.scalars().all()
+        boxes = await session.execute(select(Toolbox))
+        boxes = boxes.scalars().all()
+        stats = f"📊 СТАТИСТИКА\n\n👥 Користувачів: {len(users)}\n📦 Ящиків: {len(boxes)} / 15\n🔧 Перевірок: {len(checks)}"
+        await message.answer(stats)
