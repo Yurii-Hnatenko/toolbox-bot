@@ -48,10 +48,7 @@ def webhook():
         if not data:
             return 'No data', 400
         
-        # Створюємо новий об'єкт Update
         update = Update.model_validate(data)
-        
-        # Запускаємо обробку
         run_async(dp.feed_update(bot, update))
         
         return 'OK', 200
@@ -67,7 +64,6 @@ def health():
 def index():
     return 'Toolbox Bot is running!', 200
 
-# Запускаємо цикл подій у фоновому потоці
 def start_event_loop():
     event_loop.run_forever()
 threading.Thread(target=start_event_loop, daemon=True).start()
