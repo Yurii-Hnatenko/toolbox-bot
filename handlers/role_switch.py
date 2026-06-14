@@ -5,7 +5,9 @@ from models import User
 from keyboards import main_menu_by_role
 from sqlalchemy import select
 from handlers.common import active_role
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 @router.message(F.text == "🔄 Перемкнути роль")
@@ -45,9 +47,12 @@ async def set_active_role(callback: CallbackQuery):
     
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == user_id))
-        user = result.scalar_one()
+        user = result.scalar_one_or_none()
         
-        # Надсилаємо нове повідомлення замість редагування
+        if not user:
+            await callback.answer("❌ Користувача не знайдено")
+            return
+        
         await callback.message.answer(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
             f"Ваше меню оновлено:",
@@ -55,7 +60,6 @@ async def set_active_role(callback: CallbackQuery):
             parse_mode="Markdown"
         )
         
-        # Спроба видалити старе повідомлення (не критично, якщо не вийде)
         try:
             await callback.message.delete()
         except Exception:
