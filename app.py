@@ -3,8 +3,9 @@ import sys
 import asyncio
 from flask import Flask, request
 import logging
-import requests
 import threading
+from functools import wraps
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -12,9 +13,6 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.getcwd())
 
 app = Flask(__name__)
-
-# Отримуємо токен зі змінних середовища
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # Ініціалізація бази даних
 try:
@@ -26,7 +24,7 @@ try:
 except Exception as e:
     logger.error(f"❌ Помилка ініціалізації бази: {e}")
 
-# Імпортуємо бота (повна версія)
+# Імпортуємо бота
 try:
     from main import bot, dp
     from aiogram.types import Update
@@ -34,14 +32,22 @@ try:
 except Exception as e:
     logger.error(f"❌ Помилка імпорту бота: {e}")
 
-# Створюємо окремий цикл подій для обробки асинхронних задач
+# Створюємо окремий цикл подій
 event_loop = asyncio.new_event_loop()
 asyncio.set_event_loop(event_loop)
 
-def run_async(coro):
-    """Запускає асинхронну функцію в нашому циклі подій"""
-    future = asyncio.run_coroutine_threadsafe(coro, event_loop)
-    return future.result(timeout=30)
+def run_async(coro, retries=3, delay=1):
+    """Запускає асинхронну функцію з повторними спробами при помилках"""
+    for attempt in range(retries):
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, event_loop)
+            return future.result(timeout=30)
+        except Exception as e:
+            logger.error(f"Спроба {attempt + 1} невдала: {e}")
+            if attempt < retries - 1:
+                time.sleep(delay * (attempt + 1))
+            else:
+                raise
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -52,7 +58,6 @@ def webhook():
         if not data:
             return 'No data', 400
         
-        # Обробляємо повідомлення через aiogram
         update = Update.model_validate(data)
         run_async(dp.feed_update(bot, update))
         
@@ -61,11 +66,15 @@ def webhook():
         logger.error(f"Помилка webhook: {e}")
         return 'Error', 500
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint для Render"""
+    return 'OK', 200
+
 @app.route('/')
 def index():
     return 'Toolbox Bot is running!', 200
 
-# Запускаємо цикл подій у фоновому потоці
 def start_event_loop():
     event_loop.run_forever()
 threading.Thread(target=start_event_loop, daemon=True).start()
