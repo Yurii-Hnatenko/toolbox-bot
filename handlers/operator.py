@@ -18,6 +18,13 @@ class CheckState(StatesGroup):
     comment = State()
     photo = State()
 
+def safe_int(value, default=None):
+    """Безпечне перетворення на int"""
+    try:
+        return int(value)
+    except (ValueError, TypeError, IndexError):
+        return default
+
 @router.message(F.text == "📋 Перевірити ящик")
 async def select_toolbox(message: Message, state: FSMContext):
     async with async_session() as session:
@@ -31,11 +38,20 @@ async def select_toolbox(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("check_"))
 async def start_check(callback: CallbackQuery, state: FSMContext):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     await state.update_data(toolbox_id=toolbox_id)
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
         tools = toolbox.get_tools()
         if not tools:
             await callback.message.answer(f"❌ У ящику '{toolbox.name}' немає інструментів.")
@@ -268,7 +284,8 @@ async def my_history(message: Message):
         text = "📜 **Історія ваших перевірок:**\n\n"
         for ch in checks:
             toolbox = await session.get(Toolbox, ch.toolbox_id)
-            text += f"📦 **{toolbox.name}**\n"
+            toolbox_name = toolbox.name if toolbox else "Невідомий ящик"
+            text += f"📦 **{toolbox_name}**\n"
             text += f"   🔧 {ch.tool_name}: {'✅' if ch.is_present else '❌'}\n"
             text += f"   🕐 {ch.timestamp.strftime('%d.%m.%Y %H:%M:%S')}\n"
             if ch.comment:
@@ -289,9 +306,18 @@ async def view_tool_photos(message: Message):
 
 @router.callback_query(F.data.startswith("photos_"))
 async def show_tools_for_photo(callback: CallbackQuery):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
         tools = toolbox.get_tools()
         
         if not tools:
@@ -306,11 +332,22 @@ async def show_tools_for_photo(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("view_photo_"))
 async def show_photo(callback: CallbackQuery):
-    _, toolbox_id, tool_name = callback.data.split("_", 2)
+    parts = callback.data.split("_")
+    if len(parts) < 3:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    toolbox_id = safe_int(parts[1])
+    tool_name = "_".join(parts[2:])  # якщо назва інструменту може містити _
+    
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     async with async_session() as session:
         photo = await session.execute(
             select(ToolImage).where(
-                ToolImage.toolbox_id == int(toolbox_id), 
+                ToolImage.toolbox_id == toolbox_id, 
                 ToolImage.tool_name == tool_name
             ).order_by(ToolImage.uploaded_at.desc()).limit(1)
         )
