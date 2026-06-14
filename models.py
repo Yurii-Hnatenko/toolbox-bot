@@ -13,11 +13,11 @@ class User(Base):
     full_name = Column(String)
     role = Column(String, default="operator")
     last_version = Column(String, default="1.0.0")
-    
+
     @property
     def role_list(self):
         return self.role.split(",") if self.role else ["operator"]
-    
+
     @property
     def primary_role(self):
         if "admin" in self.role_list:
@@ -25,16 +25,16 @@ class User(Base):
         elif "mechanic" in self.role_list:
             return "mechanic"
         return "operator"
-    
+
     def has_role(self, role_name):
         return role_name in self.role_list
-    
+
     def add_role(self, role_name):
         if not self.has_role(role_name):
             roles = self.role_list
             roles.append(role_name)
             self.role = ",".join(roles)
-    
+
     def remove_role(self, role_name):
         if self.has_role(role_name):
             roles = [r for r in self.role_list if r != role_name]
@@ -45,17 +45,17 @@ class Toolbox(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
     tools_json = Column(Text, default="[]")
-    
+
     def get_tools(self):
         return json.loads(self.tools_json)
-    
+
     def set_tools(self, tools):
         self.tools_json = json.dumps(tools, ensure_ascii=False)
 
 class ToolImage(Base):
     __tablename__ = "tool_images"
     id = Column(Integer, primary_key=True)
-    toolbox_id = Column(Integer, ForeignKey("toolboxes.id"))
+    toolbox_id = Column(Integer, ForeignKey("toolboxes.id", ondelete="CASCADE"))
     tool_name = Column(String)
     photo_path = Column(String)
     uploaded_by = Column(Integer)
@@ -64,8 +64,8 @@ class ToolImage(Base):
 class ToolCheck(Base):
     __tablename__ = "tool_checks"
     id = Column(Integer, primary_key=True)
-    toolbox_id = Column(Integer, ForeignKey("toolboxes.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
+    toolbox_id = Column(Integer, ForeignKey("toolboxes.id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
     timestamp = Column(DateTime, default=datetime.utcnow)
     tool_name = Column(String)
     is_present = Column(Boolean)
@@ -75,7 +75,7 @@ class ToolCheck(Base):
 class BoxStatus(Base):
     __tablename__ = "box_statuses"
     id = Column(Integer, primary_key=True)
-    toolbox_id = Column(Integer, ForeignKey("toolboxes.id"), unique=True)
+    toolbox_id = Column(Integer, ForeignKey("toolboxes.id", ondelete="CASCADE"), unique=True)
     last_check_time = Column(DateTime, nullable=True)
     last_check_user = Column(Integer, nullable=True)
     last_user = Column(String, nullable=True)
