@@ -20,6 +20,13 @@ class LastUserState(StatesGroup):
     selecting_box = State()
     entering_name = State()
 
+def safe_int(value, default=None):
+    """Безпечне перетворення на int"""
+    try:
+        return int(value)
+    except (ValueError, TypeError, IndexError):
+        return default
+
 @router.message(F.text == "🔧 Керування інструментами")
 async def manage_tools(message: Message, state: FSMContext):
     async with async_session() as session:
@@ -33,11 +40,20 @@ async def manage_tools(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("edittools_"))
 async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     await state.update_data(toolbox_id=toolbox_id)
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
         tools = toolbox.get_tools()
         
         if not tools:
@@ -69,7 +85,11 @@ async def back_to_boxes(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("add_tool_"))
 async def start_add_tool(callback: CallbackQuery, state: FSMContext):
-    toolbox_id = int(callback.data.split("_")[2])
+    toolbox_id = safe_int(callback.data.split("_")[2])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     await state.update_data(toolbox_id=toolbox_id)
     await state.set_state(EditToolsState.adding_tool)
     await callback.message.answer("Введіть назву нового інструменту:")
@@ -83,6 +103,10 @@ async def add_tool(message: Message, state: FSMContext):
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await message.answer("❌ Ящик не знайдено")
+            return
+        
         tools = toolbox.get_tools()
         
         if new_tool not in tools:
@@ -98,8 +122,19 @@ async def add_tool(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("edit_tool_"))
 async def edit_tool(callback: CallbackQuery, state: FSMContext):
-    _, toolbox_id, old_name = callback.data.split("_", 2)
-    await state.update_data(toolbox_id=int(toolbox_id), old_tool_name=old_name)
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    toolbox_id = safe_int(parts[2])
+    old_name = "_".join(parts[3:])
+    
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    await state.update_data(toolbox_id=toolbox_id, old_tool_name=old_name)
     await state.set_state(EditToolsState.editing_tool)
     await callback.message.answer(f"Введіть нову назву для '{old_name}':")
     await callback.answer()
@@ -113,6 +148,10 @@ async def save_edited_tool(message: Message, state: FSMContext):
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await message.answer("❌ Ящик не знайдено")
+            return
+        
         tools = toolbox.get_tools()
         
         if old_name in tools:
@@ -129,11 +168,25 @@ async def save_edited_tool(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("del_tool_"))
 async def delete_tool(callback: CallbackQuery):
-    _, toolbox_id, tool_name = callback.data.split("_", 2)
-    toolbox_id = int(toolbox_id)
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    toolbox_id = safe_int(parts[2])
+    tool_name = "_".join(parts[3:])
+    
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
         tools = toolbox.get_tools()
         
         if tool_name in tools:
@@ -226,7 +279,10 @@ async def detail_report_menu(message: Message):
 
 @router.callback_query(F.data.startswith("report_"))
 async def box_detail_report(callback: CallbackQuery):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
@@ -295,7 +351,11 @@ async def change_last_user(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("lastuser_"))
 async def ask_last_user(callback: CallbackQuery, state: FSMContext):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     await state.update_data(toolbox_id=toolbox_id)
     await state.set_state(LastUserState.entering_name)
     await callback.message.answer("Введіть ПІБ останнього користувача:")
@@ -330,9 +390,18 @@ async def view_tool_photos_mechanic(message: Message):
 
 @router.callback_query(F.data.startswith("photos_"))
 async def show_tools_for_photo_mechanic(callback: CallbackQuery):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
         tools = toolbox.get_tools()
         
         if not tools:
@@ -346,11 +415,22 @@ async def show_tools_for_photo_mechanic(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("view_photo_"))
 async def show_photo(callback: CallbackQuery):
-    _, toolbox_id, tool_name = callback.data.split("_", 2)
+    parts = callback.data.split("_")
+    if len(parts) < 4:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    toolbox_id = safe_int(parts[2])
+    tool_name = "_".join(parts[3:])
+    
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
     async with async_session() as session:
         photo = await session.execute(
             select(ToolImage).where(
-                ToolImage.toolbox_id == int(toolbox_id), 
+                ToolImage.toolbox_id == toolbox_id, 
                 ToolImage.tool_name == tool_name
             ).order_by(ToolImage.uploaded_at.desc()).limit(1)
         )
