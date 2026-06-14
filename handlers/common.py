@@ -52,7 +52,11 @@ async def cmd_start(message: Message):
 async def info(message: Message):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = result.scalar_one()
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("❌ Користувача не знайдено")
+            return
         
         await message.answer(
             f"👤 **Інформація про користувача**\n\n"
@@ -68,7 +72,12 @@ async def info(message: Message):
 async def back_to_main(message: Message):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = result.scalar_one()
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("❌ Користувача не знайдено")
+            return
+        
         current_role = active_role.get(message.from_user.id, user.primary_role)
         
         await message.answer(
