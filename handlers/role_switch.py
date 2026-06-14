@@ -14,7 +14,12 @@ router = Router()
 async def switch_role_menu(message: Message):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = result.scalar_one()
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("❌ Користувача не знайдено. Надішліть /start")
+            return
+        
         roles = user.role_list
         
         if len(roles) <= 1:
