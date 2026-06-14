@@ -16,10 +16,9 @@ async def main():
     dp.include_router(operator.router)
     dp.include_router(mechanic.router)
     dp.include_router(admin.router)
-    dp.include_router(role_switch.router)  # Новий роутер для перемикання ролей
+    dp.include_router(role_switch.router)
     
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("✅ Бот запущено з підтримкою множинних ролей!")
+    print("✅ Бот запущено!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
