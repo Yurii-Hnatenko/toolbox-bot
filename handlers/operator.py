@@ -188,6 +188,7 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
     
     try:
         async with async_session() as session:
+            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
             )
@@ -202,6 +203,7 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
                 )
                 session.add(user)
                 await session.commit()
+                logger.info(f"Створено нового користувача: {user.telegram_id}")
             
             toolbox = await session.get(Toolbox, toolbox_id)
             if not toolbox:
@@ -288,6 +290,7 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     try:
         async with async_session() as session:
+            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == message.from_user.id)
             )
@@ -302,6 +305,7 @@ async def save_photo_and_check(message: Message, state: FSMContext):
                 )
                 session.add(user)
                 await session.commit()
+                logger.info(f"Створено нового користувача: {user.telegram_id}")
             
             toolbox = await session.get(Toolbox, toolbox_id)
             if not toolbox:
@@ -387,6 +391,7 @@ async def my_history(message: Message):
             )
             session.add(user)
             await session.commit()
+            logger.info(f"Створено нового користувача: {user.telegram_id}")
         
         checks = await session.execute(
             select(ToolCheck).where(ToolCheck.user_id == user.id)
