@@ -16,6 +16,13 @@ class AdminState(StatesGroup):
     setting_role_user_id = State()
     setting_role = State()
 
+def safe_int(value, default=None):
+    """Безпечне перетворення на int"""
+    try:
+        return int(value)
+    except (ValueError, TypeError, IndexError):
+        return default
+
 @router.message(F.text == "👥 Керування ролями")
 async def manage_roles(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
@@ -151,7 +158,10 @@ async def delete_toolbox_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("delbox_"))
 async def confirm_delete_box(callback: CallbackQuery):
-    toolbox_id = int(callback.data.split("_")[1])
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
     
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
