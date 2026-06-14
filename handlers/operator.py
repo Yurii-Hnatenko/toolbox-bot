@@ -31,7 +31,7 @@ async def select_toolbox(message: Message, state: FSMContext):
         toolboxes = await session.execute(select(Toolbox))
         toolboxes = toolboxes.scalars().all()
         if not toolboxes:
-            await message.answer("❌ Немає створених ящиків.")
+            await message.answer("❌ Немає створених ящиків. Зверніться до адміністратора.")
             return
         await state.set_state(CheckState.selecting_toolbox)
         await message.answer("Оберіть ящик для перевірки:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
@@ -54,7 +54,7 @@ async def start_check(callback: CallbackQuery, state: FSMContext):
         
         tools = toolbox.get_tools()
         if not tools:
-            await callback.message.answer(f"❌ У ящику '{toolbox.name}' немає інструментів.")
+            await callback.message.answer(f"❌ У ящику '{toolbox.name}' немає інструментів. Механік має їх додати.")
             await callback.answer()
             return
         
@@ -67,8 +67,11 @@ async def start_check(callback: CallbackQuery, state: FSMContext):
         ])
         
         await callback.message.answer(
-            f"🔧 {toolbox.name}\n📌 {tools[0]}\n\nСтатус:",
-            reply_markup=kb
+            f"🔧 **Ящик:** {toolbox.name}\n"
+            f"📌 **Інструмент {1}/{len(tools)}:** {tools[0]}\n\n"
+            f"Оберіть статус:",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     await callback.answer()
 
@@ -87,13 +90,15 @@ async def process_presence(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.answer(
-        f"📝 Коментар до '{tools[index]}' (або кнопка):",
-        reply_markup=kb
+        f"📝 **{tools[index]}**\n\nВведіть коментар (або натисніть кнопку нижче):",
+        reply_markup=kb,
+        parse_mode="Markdown"
     )
     await callback.answer()
 
 @router.callback_query(F.data == "skip_comment")
 async def skip_comment(callback: CallbackQuery, state: FSMContext):
+    """Пропуск коментаря"""
     data = await state.get_data()
     current_result = data.get("current_result", {})
     current_result["comment"] = ""
@@ -114,8 +119,9 @@ async def skip_comment(callback: CallbackQuery, state: FSMContext):
         ])
         
         await callback.message.answer(
-            f"📌 {tools[index]}\n\nСтатус:",
-            reply_markup=kb
+            f"📌 **Інструмент {index+1}/{len(tools)}:** {tools[index]}\n\nОберіть статус:",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     else:
         await state.set_state(CheckState.photo)
@@ -123,14 +129,15 @@ async def skip_comment(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⏭ Пропустити фото", callback_data="skip_photo")]
         ])
         await callback.message.answer(
-            "📸 Фото ящика (або кнопка):",
-            reply_markup=kb
+            "📸 **Фото ящика**\n\nНадішліть фото (або натисніть кнопку нижче):",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     await callback.answer()
 
 @router.message(CheckState.comment)
 async def process_comment(message: Message, state: FSMContext):
-    comment = message.text
+    comment = message.text.strip()
     data = await state.get_data()
     current_result = data.get("current_result", {})
     current_result["comment"] = comment
@@ -151,8 +158,9 @@ async def process_comment(message: Message, state: FSMContext):
         ])
         
         await message.answer(
-            f"📌 {tools[index]}\n\nСтатус:",
-            reply_markup=kb
+            f"📌 **Інструмент {index+1}/{len(tools)}:** {tools[index]}\n\nОберіть статус:",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
     else:
         await state.set_state(CheckState.photo)
@@ -160,12 +168,14 @@ async def process_comment(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="⏭ Пропустити фото", callback_data="skip_photo")]
         ])
         await message.answer(
-            "📸 Фото ящика (або кнопка):",
-            reply_markup=kb
+            "📸 **Фото ящика**\n\nНадішліть фото (або натисніть кнопку нижче):",
+            reply_markup=kb,
+            parse_mode="Markdown"
         )
 
 @router.callback_query(F.data == "skip_photo")
 async def skip_photo(callback: CallbackQuery, state: FSMContext):
+    """Пропуск фото"""
     data = await state.get_data()
     results = data.get("results", [])
     toolbox_id = data["toolbox_id"]
@@ -188,8 +198,8 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
             if not res["present"]:
                 all_present = False
         
-        box_status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        box_status = box_status.scalar_one_or_none()
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        box_status = result.scalar_one_or_none()
         if not box_status:
             box_status = BoxStatus(toolbox_id=toolbox_id)
             session.add(box_status)
@@ -202,10 +212,24 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
     
     total = len(results)
     present_count = sum(1 for r in results if r["present"])
-    result_text = f"✅ Перевірку завершено!\n\n✅ Є: {present_count}/{total}\n❌ Відсутні: {total - present_count}/{total}"
+    missing_count = total - present_count
+    
+    result_text = f"✅ **Перевірку завершено!**\n\n"
+    result_text += f"📊 **Результати:**\n"
+    result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
+    result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
+    
+    if missing_count > 0:
+        result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+        for r in results:
+            if not r["present"]:
+                result_text += f"   • {r['tool']}\n"
+                if r.get("comment"):
+                    result_text += f"     📝 {r['comment']}\n"
     
     await callback.message.answer(
         result_text,
+        parse_mode="Markdown",
         reply_markup=main_menu_by_role(active_role.get(callback.from_user.id, "operator"))
     )
     await state.clear()
@@ -243,8 +267,8 @@ async def save_photo_and_check(message: Message, state: FSMContext):
             if not res["present"]:
                 all_present = False
         
-        box_status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        box_status = box_status.scalar_one_or_none()
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        box_status = result.scalar_one_or_none()
         if not box_status:
             box_status = BoxStatus(toolbox_id=toolbox_id)
             session.add(box_status)
@@ -257,10 +281,27 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     total = len(results)
     present_count = sum(1 for r in results if r["present"])
-    result_text = f"✅ Перевірку завершено!\n\n✅ Є: {present_count}/{total}\n❌ Відсутні: {total - present_count}/{total}"
+    missing_count = total - present_count
+    
+    result_text = f"✅ **Перевірку завершено!**\n\n"
+    result_text += f"📊 **Результати:**\n"
+    result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
+    result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
+    
+    if missing_count > 0:
+        result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+        for r in results:
+            if not r["present"]:
+                result_text += f"   • {r['tool']}\n"
+                if r.get("comment"):
+                    result_text += f"     📝 {r['comment']}\n"
+    
+    if photo_path:
+        result_text += f"\n📸 Фото збережено!"
     
     await message.answer(
         result_text,
+        parse_mode="Markdown",
         reply_markup=main_menu_by_role(active_role.get(message.from_user.id, "operator"))
     )
     await state.clear()
@@ -338,7 +379,7 @@ async def show_photo(callback: CallbackQuery):
         return
     
     toolbox_id = safe_int(parts[1])
-    tool_name = "_".join(parts[2:])  # якщо назва інструменту може містити _
+    tool_name = "_".join(parts[2:]) if len(parts) > 2 else parts[2]
     
     if toolbox_id is None:
         await callback.answer("Помилка: невірний формат даних")
