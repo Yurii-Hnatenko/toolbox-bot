@@ -8,7 +8,9 @@ from database import async_session
 from models import User, Toolbox, BoxStatus, ToolCheck, ToolImage
 from keyboards import toolboxes_list_kb, main_menu_by_role, report_boxes_list_kb
 from handlers.common import active_role
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 class EditToolsState(StatesGroup):
