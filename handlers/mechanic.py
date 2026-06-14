@@ -269,8 +269,9 @@ async def full_report(message: Message):
         report += "━" * 30 + "\n\n"
         
         for box in toolboxes:
-            status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
-            status = status.scalar_one_or_none()
+            # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
+            result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
+            status = result.scalar_one_or_none()
             
             tools = box.get_tools()
             
@@ -362,8 +363,9 @@ async def box_detail_report(callback: CallbackQuery):
             await callback.answer()
             return
         
-        status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        status = status.scalar_one_or_none()
+        # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        status = result.scalar_one_or_none()
         
         tools = toolbox.get_tools()
         
@@ -440,8 +442,9 @@ async def save_last_user(message: Message, state: FSMContext):
     last_user = message.text.strip()
     
     async with async_session() as session:
-        box_status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        box_status = box_status.scalar_one_or_none()
+        # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
+        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        box_status = result.scalar_one_or_none()
         if box_status:
             box_status.last_user = last_user
             await session.commit()
