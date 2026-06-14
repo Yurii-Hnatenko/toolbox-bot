@@ -31,6 +31,48 @@ def admin_manage_boxes_kb():
         [InlineKeyboardButton(text="🔙 Назад до меню", callback_data="back_to_admin_menu")]
     ])
 
+# НОВА ФУНКЦІЯ ДЛЯ ОНОВЛЕННЯ РОЛЕЙ АДМІНА
+@router.message(F.text == "📊 Оновити мої ролі")
+async def refresh_my_roles(message: Message):
+    """Оновлює ролі користувача (для адміністраторів)"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Доступ заборонено")
+        return
+    
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("❌ Користувача не знайдено")
+            return
+        
+        # Додаємо всі ролі адміністратору
+        need_update = False
+        for role in ["admin", "mechanic", "operator"]:
+            if not user.has_role(role):
+                user.add_role(role)
+                need_update = True
+        
+        if need_update:
+            await session.commit()
+            logger.info(f"Оновлено ролі для адміна {message.from_user.id}: {user.role_list}")
+            await message.answer(f"✅ Ваші ролі оновлено!\n\n📋 Ваші ролі: {', '.join(user.role_list)}")
+        else:
+            await message.answer(f"✅ Ваші ролі вже актуальні:\n\n📋 Ваші ролі: {', '.join(user.role_list)}")
+        
+        # Оновлюємо активну роль
+        if message.from_user.id in active_role:
+            if active_role[message.from_user.id] not in user.role_list:
+                active_role[message.from_user.id] = user.primary_role
+        else:
+            active_role[message.from_user.id] = user.primary_role
+        
+        await message.answer(
+            f"⭐ Активна роль: {active_role.get(message.from_user.id, user.primary_role).capitalize()}",
+            reply_markup=main_menu_by_role(active_role.get(message.from_user.id, user.primary_role))
+        )
+
 @router.message(F.text == "👥 Керування ролями")
 async def manage_roles(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
