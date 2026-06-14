@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
 from database import async_session
 from models import User, Toolbox, BoxStatus, ToolCheck, ToolImage
-from keyboards import toolboxes_list_kb, main_menu_by_role
+from keyboards import toolboxes_list_kb, main_menu_by_role, report_boxes_list_kb
 from handlers.common import active_role
 
 router = Router()
@@ -145,6 +145,7 @@ async def delete_tool(callback: CallbackQuery):
     await callback.answer()
     await edit_tools_list(callback, FSMContext())
 
+# ==================== ОНОВЛЕНИЙ ЗВІТ ====================
 @router.message(F.text == "📊 Загальний звіт")
 async def full_report(message: Message):
     async with async_session() as session:
@@ -152,21 +153,146 @@ async def full_report(message: Message):
         toolboxes = toolboxes.scalars().all()
         
         if not toolboxes:
-            await message.answer("❌ Немає ящиків.")
+            await message.answer("❌ Немає створених ящиків.")
             return
         
-        report = "📊 ЗВІТ ПО ВСІХ ЯЩИКАХ\n\n"
+        report = "📊 **ЗВІТ ПО ВСІХ ІНСТРУМЕНТАЛЬНИХ ЯЩИКАХ**\n"
+        report += "━" * 30 + "\n\n"
+        
         for box in toolboxes:
+            # Отримуємо статус ящика
             status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
             status = status.scalar_one_or_none()
             
-            report += f"📦 {box.name}: {'✅ Укомплектовано' if status and status.is_complete else '❌ Не укомплектовано'}\n"
+            # Отримуємо список інструментів
+            tools = box.get_tools()
+            
+            # Отримуємо останні перевірки
+            last_checks = {}
+            if tools:
+                checks_result = await session.execute(
+                    select(ToolCheck).where(ToolCheck.toolbox_id == box.id)
+                    .order_by(ToolCheck.timestamp.desc())
+                )
+                checks = checks_result.scalars().all()
+                checked_tools = set()
+                for check in checks:
+                    if check.tool_name not in checked_tools:
+                        last_checks[check.tool_name] = check.is_present
+                        checked_tools.add(check.tool_name)
+            
+            # Визначаємо статус комплектності
+            is_complete = status.is_complete if status else True
+            
+            # Значок статусу
+            status_icon = "✅" if is_complete else "❌"
+            status_text = "КОМПЛЕКТНО" if is_complete else "НЕ КОМПЛЕКТНО"
+            
+            report += f"**📦 ЯЩИК №{box.id}** ─ {box.name}\n"
+            report += f"┌─────────────────────────────────\n"
+            report += f"│ Статус: {status_icon} {status_text}\n"
+            
+            # Якщо не комплектно - список відсутніх інструментів
+            if not is_complete:
+                missing_tools = []
+                for tool in tools:
+                    is_present = last_checks.get(tool, False)
+                    if not is_present:
+                        missing_tools.append(tool)
+                
+                if missing_tools:
+                    report += f"│\n│ ❌ **Відсутні інструменти:**\n"
+                    for tool in missing_tools:
+                        report += f"│    • {tool}\n"
+                else:
+                    report += f"│\n│ ⚠️ Немає даних про перевірку\n"
+                    report += f"│    Проведіть перевірку ящика\n"
+            else:
+                report += f"│\n│ ✅ Всі інструменти на місці\n"
+            
+            # Інформація про останню перевірку
+            if status and status.last_check_time:
+                last_check_date = status.last_check_time.strftime('%d.%m.%Y %H:%M')
+                report += f"│\n│ 🕐 Остання перевірка: {last_check_date}\n"
+            
             if status and status.last_user:
-                report += f"👤 Останній користувач: {status.last_user}\n"
-            report += "\n"
+                report += f"│ 👤 Останній користувач: {status.last_user}\n"
+            
+            report += f"└─────────────────────────────────\n\n"
         
-        await message.answer(report)
+        await message.answer(report, parse_mode="Markdown")
 
+# ==================== ДЕТАЛЬНИЙ ЗВІТ ====================
+@router.message(F.text == "📋 Детальний звіт")
+async def detail_report_menu(message: Message):
+    async with async_session() as session:
+        toolboxes = await session.execute(select(Toolbox))
+        toolboxes = toolboxes.scalars().all()
+        if not toolboxes:
+            await message.answer("❌ Немає створених ящиків.")
+            return
+        await message.answer("Оберіть ящик для детального звіту:", reply_markup=report_boxes_list_kb(toolboxes))
+
+@router.callback_query(F.data.startswith("report_"))
+async def box_detail_report(callback: CallbackQuery):
+    toolbox_id = int(callback.data.split("_")[1])
+    
+    async with async_session() as session:
+        toolbox = await session.get(Toolbox, toolbox_id)
+        if not toolbox:
+            await callback.message.answer("❌ Ящик не знайдено")
+            await callback.answer()
+            return
+        
+        status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+        status = status.scalar_one_or_none()
+        
+        tools = toolbox.get_tools()
+        
+        # Отримуємо останні перевірки
+        last_checks = {}
+        if tools:
+            checks_result = await session.execute(
+                select(ToolCheck).where(ToolCheck.toolbox_id == toolbox_id)
+                .order_by(ToolCheck.timestamp.desc())
+            )
+            checks = checks_result.scalars().all()
+            checked_tools = set()
+            for check in checks:
+                if check.tool_name not in checked_tools:
+                    last_checks[check.tool_name] = check.is_present
+                    checked_tools.add(check.tool_name)
+        
+        is_complete = status.is_complete if status else True
+        
+        report = f"📦 **ДЕТАЛЬНИЙ ЗВІТ: {toolbox.name}**\n"
+        report += "━" * 30 + "\n\n"
+        
+        report += f"📊 **Загальний стан:**\n"
+        report += f"│   {'✅ КОМПЛЕКТНО' if is_complete else '❌ НЕ КОМПЛЕКТНО'}\n\n"
+        
+        report += f"🔧 **Список інструментів:**\n"
+        for tool in tools:
+            is_present = last_checks.get(tool, None)
+            if is_present is True:
+                report += f"│   ✅ {tool}\n"
+            elif is_present is False:
+                report += f"│   ❌ {tool}\n"
+            else:
+                report += f"│   ❓ {tool} (немає даних)\n"
+        
+        if status and status.last_check_time:
+            report += f"\n🕐 **Остання перевірка:**\n"
+            report += f"│   {status.last_check_time.strftime('%d.%m.%Y о %H:%M')}\n"
+        
+        if status and status.last_user:
+            report += f"\n👤 **Останній користувач:**\n"
+            report += f"│   {status.last_user}\n"
+        
+        await callback.message.answer(report, parse_mode="Markdown")
+    await callback.answer()
+
+# ==================== ІНШІ ФУНКЦІЇ ====================
 @router.message(F.text == "🏷️ Змінити останнього користувача")
 async def change_last_user(message: Message, state: FSMContext):
     async with async_session() as session:
@@ -227,4 +353,26 @@ async def show_tools_for_photo_mechanic(callback: CallbackQuery):
         
         buttons = [[InlineKeyboardButton(text=f"📷 {tool}", callback_data=f"view_photo_{toolbox_id}_{tool}")] for tool in tools]
         await callback.message.answer(f"📸 Оберіть інструмент:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("view_photo_"))
+async def show_photo(callback: CallbackQuery):
+    _, toolbox_id, tool_name = callback.data.split("_", 2)
+    async with async_session() as session:
+        photo = await session.execute(
+            select(ToolImage).where(
+                ToolImage.toolbox_id == int(toolbox_id), 
+                ToolImage.tool_name == tool_name
+            ).order_by(ToolImage.uploaded_at.desc()).limit(1)
+        )
+        photo = photo.scalar_one_or_none()
+        
+        if photo and os.path.exists(photo.photo_path):
+            from aiogram.types import FSInputFile
+            await callback.message.answer_photo(
+                photo=FSInputFile(photo.photo_path), 
+                caption=f"🔧 {tool_name}"
+            )
+        else:
+            await callback.message.answer(f"❌ Фото для {tool_name} відсутнє")
     await callback.answer()
