@@ -11,8 +11,12 @@ import logging
 logger = logging.getLogger(__name__)
 router = Router()
 
-# Глобальний словник для зберігання активної ролі
+# Глобальний словник для зберігання активної ролі (зберігається в пам'яті)
 active_role = {}
+
+def get_user_roles_from_db(user):
+    """Отримує список ролей користувача з моделі"""
+    return user.role_list
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -36,8 +40,23 @@ async def cmd_start(message: Message):
             )
             session.add(user)
             await session.commit()
+        else:
+            # Перевіряємо, чи користувач є адміністратором (оновлюємо ролі, якщо потрібно)
+            if message.from_user.id in ADMIN_IDS and "admin" not in user.role_list:
+                # Додаємо всі ролі адміністратору
+                user.add_role("admin")
+                user.add_role("mechanic")
+                user.add_role("operator")
+                await session.commit()
+                logger.info(f"Оновлено ролі для адміна {message.from_user.id}: {user.role_list}")
         
+        # Встановлюємо активну роль
         if message.from_user.id not in active_role:
+            active_role[message.from_user.id] = user.primary_role
+        
+        # Переконуємося, що активна роль існує в списку ролей користувача
+        current_active = active_role.get(message.from_user.id)
+        if current_active not in user.role_list:
             active_role[message.from_user.id] = user.primary_role
         
         await message.answer(
