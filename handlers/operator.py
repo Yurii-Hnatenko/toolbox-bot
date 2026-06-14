@@ -9,7 +9,9 @@ from models import User, Toolbox, ToolCheck, BoxStatus, ToolImage
 from keyboards import toolboxes_list_kb, main_menu_by_role
 from handlers.common import active_role
 from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 class CheckState(StatesGroup):
@@ -175,65 +177,85 @@ async def process_comment(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "skip_photo")
 async def skip_photo(callback: CallbackQuery, state: FSMContext):
-    """Пропуск фото"""
+    """Пропуск фото - ВИПРАВЛЕНО"""
+    # Відповідаємо одразу, щоб кнопка не зависала
+    await callback.answer("Зберігаю результати...")
+    
     data = await state.get_data()
     results = data.get("results", [])
     toolbox_id = data["toolbox_id"]
     
-    async with async_session() as session:
-        user = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
-        user = user.scalar_one()
-        
-        all_present = True
-        for res in results:
-            check = ToolCheck(
-                toolbox_id=toolbox_id,
-                user_id=user.id,
-                tool_name=res["tool"],
-                is_present=res["present"],
-                comment=res.get("comment", ""),
-                photo_path=None
-            )
-            session.add(check)
-            if not res["present"]:
-                all_present = False
-        
-        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        box_status = result.scalar_one_or_none()
-        if not box_status:
-            box_status = BoxStatus(toolbox_id=toolbox_id)
-            session.add(box_status)
-        
-        box_status.last_check_time = datetime.utcnow()
-        box_status.last_check_user = user.id
-        box_status.is_complete = all_present
-        
-        await session.commit()
+    if not results:
+        await callback.message.answer("❌ Немає даних про перевірку. Спробуйте ще раз.")
+        await state.clear()
+        return
     
-    total = len(results)
-    present_count = sum(1 for r in results if r["present"])
-    missing_count = total - present_count
-    
-    result_text = f"✅ **Перевірку завершено!**\n\n"
-    result_text += f"📊 **Результати:**\n"
-    result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
-    result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
-    
-    if missing_count > 0:
-        result_text += f"\n⚠️ **Відсутні інструменти:**\n"
-        for r in results:
-            if not r["present"]:
-                result_text += f"   • {r['tool']}\n"
-                if r.get("comment"):
-                    result_text += f"     📝 {r['comment']}\n"
-    
-    await callback.message.answer(
-        result_text,
-        parse_mode="Markdown",
-        reply_markup=main_menu_by_role(active_role.get(callback.from_user.id, "operator"))
-    )
-    await state.clear()
-    await callback.answer()
+    try:
+        async with async_session() as session:
+            # Отримуємо користувача
+            result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                await callback.message.answer("❌ Користувача не знайдено")
+                await state.clear()
+                return
+            
+            all_present = True
+            for res in results:
+                check = ToolCheck(
+                    toolbox_id=toolbox_id,
+                    user_id=user.id,
+                    tool_name=res["tool"],
+                    is_present=res["present"],
+                    comment=res.get("comment", ""),
+                    photo_path=None
+                )
+                session.add(check)
+                if not res["present"]:
+                    all_present = False
+            
+            # Оновлюємо статус ящика
+            box_status_result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+            box_status = box_status_result.scalar_one_or_none()
+            if not box_status:
+                box_status = BoxStatus(toolbox_id=toolbox_id)
+                session.add(box_status)
+            
+            box_status.last_check_time = datetime.utcnow()
+            box_status.last_check_user = user.id
+            box_status.is_complete = all_present
+            
+            await session.commit()
+        
+        total = len(results)
+        present_count = sum(1 for r in results if r["present"])
+        missing_count = total - present_count
+        
+        result_text = f"✅ **Перевірку завершено!**\n\n"
+        result_text += f"📊 **Результати:**\n"
+        result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
+        result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
+        
+        if missing_count > 0:
+            result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+            for r in results:
+                if not r["present"]:
+                    result_text += f"   • {r['tool']}\n"
+                    if r.get("comment"):
+                        result_text += f"     📝 {r['comment']}\n"
+        
+        await callback.message.answer(
+            result_text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_by_role(active_role.get(callback.from_user.id, "operator"))
+        )
+        
+    except Exception as e:
+        logger.error(f"Помилка при збереженні перевірки: {e}")
+        await callback.message.answer(f"❌ Сталася помилка при збереженні: {str(e)}")
+    finally:
+        await state.clear()
 
 @router.message(CheckState.photo)
 async def save_photo_and_check(message: Message, state: FSMContext):
@@ -249,68 +271,88 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     results = data.get("results", [])
     toolbox_id = data["toolbox_id"]
     
-    async with async_session() as session:
-        user = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = user.scalar_one()
+    if not results:
+        await message.answer("❌ Немає даних про перевірку. Спробуйте ще раз.")
+        await state.clear()
+        return
+    
+    try:
+        async with async_session() as session:
+            user_result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+            user = user_result.scalar_one_or_none()
+            
+            if not user:
+                await message.answer("❌ Користувача не знайдено")
+                await state.clear()
+                return
+            
+            all_present = True
+            for res in results:
+                check = ToolCheck(
+                    toolbox_id=toolbox_id,
+                    user_id=user.id,
+                    tool_name=res["tool"],
+                    is_present=res["present"],
+                    comment=res.get("comment", ""),
+                    photo_path=photo_path
+                )
+                session.add(check)
+                if not res["present"]:
+                    all_present = False
+            
+            box_status_result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
+            box_status = box_status_result.scalar_one_or_none()
+            if not box_status:
+                box_status = BoxStatus(toolbox_id=toolbox_id)
+                session.add(box_status)
+            
+            box_status.last_check_time = datetime.utcnow()
+            box_status.last_check_user = user.id
+            box_status.is_complete = all_present
+            
+            await session.commit()
         
-        all_present = True
-        for res in results:
-            check = ToolCheck(
-                toolbox_id=toolbox_id,
-                user_id=user.id,
-                tool_name=res["tool"],
-                is_present=res["present"],
-                comment=res.get("comment", ""),
-                photo_path=photo_path
-            )
-            session.add(check)
-            if not res["present"]:
-                all_present = False
+        total = len(results)
+        present_count = sum(1 for r in results if r["present"])
+        missing_count = total - present_count
         
-        result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
-        box_status = result.scalar_one_or_none()
-        if not box_status:
-            box_status = BoxStatus(toolbox_id=toolbox_id)
-            session.add(box_status)
+        result_text = f"✅ **Перевірку завершено!**\n\n"
+        result_text += f"📊 **Результати:**\n"
+        result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
+        result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
         
-        box_status.last_check_time = datetime.utcnow()
-        box_status.last_check_user = user.id
-        box_status.is_complete = all_present
+        if missing_count > 0:
+            result_text += f"\n⚠️ **Відсутні інструменти:**\n"
+            for r in results:
+                if not r["present"]:
+                    result_text += f"   • {r['tool']}\n"
+                    if r.get("comment"):
+                        result_text += f"     📝 {r['comment']}\n"
         
-        await session.commit()
-    
-    total = len(results)
-    present_count = sum(1 for r in results if r["present"])
-    missing_count = total - present_count
-    
-    result_text = f"✅ **Перевірку завершено!**\n\n"
-    result_text += f"📊 **Результати:**\n"
-    result_text += f"   ✅ Є в наявності: {present_count}/{total}\n"
-    result_text += f"   ❌ Відсутні: {missing_count}/{total}\n"
-    
-    if missing_count > 0:
-        result_text += f"\n⚠️ **Відсутні інструменти:**\n"
-        for r in results:
-            if not r["present"]:
-                result_text += f"   • {r['tool']}\n"
-                if r.get("comment"):
-                    result_text += f"     📝 {r['comment']}\n"
-    
-    if photo_path:
-        result_text += f"\n📸 Фото збережено!"
-    
-    await message.answer(
-        result_text,
-        parse_mode="Markdown",
-        reply_markup=main_menu_by_role(active_role.get(message.from_user.id, "operator"))
-    )
-    await state.clear()
+        if photo_path:
+            result_text += f"\n📸 Фото збережено!"
+        
+        await message.answer(
+            result_text,
+            parse_mode="Markdown",
+            reply_markup=main_menu_by_role(active_role.get(message.from_user.id, "operator"))
+        )
+        
+    except Exception as e:
+        logger.error(f"Помилка при збереженні перевірки: {e}")
+        await message.answer(f"❌ Сталася помилка при збереженні: {str(e)}")
+    finally:
+        await state.clear()
 
 @router.message(F.text == "📜 Історія моїх перевірок")
 async def my_history(message: Message):
     async with async_session() as session:
-        user = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = user.scalar_one()
+        user_result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
+        user = user_result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("❌ Користувача не знайдено")
+            return
         
         checks = await session.execute(
             select(ToolCheck).where(ToolCheck.user_id == user.id)
