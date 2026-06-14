@@ -165,7 +165,6 @@ async def confirm_delete_box(callback: CallbackQuery):
             await callback.message.answer("❌ Ящик не знайдено.")
     await callback.answer()
 
-# ==================== ОНОВЛЕНА ГЛОБАЛЬНА СТАТИСТИКА ====================
 @router.message(F.text == "📊 Глобальна статистика")
 async def global_stats(message: Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -180,7 +179,6 @@ async def global_stats(message: Message):
         boxes = await session.execute(select(Toolbox))
         boxes = boxes.scalars().all()
         
-        # Статистика по ящиках
         complete_count = 0
         incomplete_boxes = []
         
@@ -198,7 +196,6 @@ async def global_stats(message: Message):
         stats += f"👥 **Користувачі:**\n"
         stats += f"│   Всього: {len(users)}\n"
         
-        # Підрахунок за ролями
         admin_count = sum(1 for u in users if "admin" in u.role_list)
         mechanic_count = sum(1 for u in users if "mechanic" in u.role_list)
         operator_count = sum(1 for u in users if "operator" in u.role_list)
@@ -220,7 +217,6 @@ async def global_stats(message: Message):
         stats += f"\n🔧 **Статистика перевірок:**\n"
         stats += f"│   Всього перевірок: {len(checks)}\n"
         
-        # Останні 5 перевірок
         if checks:
             last_checks = await session.execute(
                 select(ToolCheck).order_by(ToolCheck.timestamp.desc()).limit(5)
