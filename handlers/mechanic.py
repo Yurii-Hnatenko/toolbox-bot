@@ -59,14 +59,22 @@ async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
         if not tools:
             await callback.message.answer(f"📦 {toolbox.name}\nІнструменти відсутні. Додайте перший.")
             await state.set_state(EditToolsState.adding_tool)
-            await callback.message.answer("Введіть назву інструменту:")
+            
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Скасувати", callback_data="cancel_add_tool")]
+            ])
+            await callback.message.answer(
+                "✏️ Введіть назву нового інструменту:\n\n_Надішліть назву або натисніть Скасувати_",
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
         else:
             buttons = []
             for tool in tools:
                 buttons.append([InlineKeyboardButton(text=f"✏️ {tool}", callback_data=f"edit_tool_{toolbox_id}_{tool}")])
                 buttons.append([InlineKeyboardButton(text=f"🗑️ Видалити {tool}", callback_data=f"del_tool_{toolbox_id}_{tool}")])
             buttons.append([InlineKeyboardButton(text="➕ Додати інструмент", callback_data=f"add_tool_{toolbox_id}")])
-            buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes")])
+            buttons.append([InlineKeyboardButton(text="🔙 Назад до вибору ящика", callback_data="back_to_boxes")])
             
             await callback.message.answer(
                 f"📦 {toolbox.name}\nОберіть дію:",
@@ -92,8 +100,23 @@ async def start_add_tool(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(toolbox_id=toolbox_id)
     await state.set_state(EditToolsState.adding_tool)
-    await callback.message.answer("Введіть назву нового інструменту:")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Скасувати", callback_data="cancel_add_tool")]
+    ])
+    
+    await callback.message.answer(
+        "✏️ Введіть назву нового інструменту:\n\n_Надішліть назву або натисніть Скасувати_",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
     await callback.answer()
+
+@router.callback_query(F.data == "cancel_add_tool")
+async def cancel_add_tool(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await edit_tools_list(callback, state)
+    await callback.answer("❌ Додавання інструменту скасовано")
 
 @router.message(EditToolsState.adding_tool)
 async def add_tool(message: Message, state: FSMContext):
@@ -101,21 +124,29 @@ async def add_tool(message: Message, state: FSMContext):
     toolbox_id = data.get("toolbox_id")
     new_tool = message.text.strip()
     
+    if new_tool.lower() == "скасувати":
+        await message.answer("❌ Додавання інструменту скасовано.")
+        await state.clear()
+        await edit_tools_list(message, state)
+        return
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         if not toolbox:
             await message.answer("❌ Ящик не знайдено")
+            await state.clear()
             return
         
         tools = toolbox.get_tools()
         
-        if new_tool not in tools:
+        if new_tool in tools:
+            await message.answer(f"⚠️ Інструмент '{new_tool}' вже існує в ящику '{toolbox.name}'. Введіть іншу назву:")
+            return
+        else:
             tools.append(new_tool)
             toolbox.set_tools(tools)
             await session.commit()
-            await message.answer(f"✅ Інструмент '{new_tool}' додано.")
-        else:
-            await message.answer(f"⚠️ '{new_tool}' вже існує.")
+            await message.answer(f"✅ Інструмент '{new_tool}' додано до ящика '{toolbox.name}'!")
     
     await state.clear()
     await edit_tools_list(message, state)
@@ -136,8 +167,23 @@ async def edit_tool(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(toolbox_id=toolbox_id, old_tool_name=old_name)
     await state.set_state(EditToolsState.editing_tool)
-    await callback.message.answer(f"Введіть нову назву для '{old_name}':")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Скасувати", callback_data="cancel_edit_tool")]
+    ])
+    
+    await callback.message.answer(
+        f"✏️ Введіть нову назву для інструменту '{old_name}':\n\n_Надішліть назву або натисніть Скасувати_",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
     await callback.answer()
+
+@router.callback_query(F.data == "cancel_edit_tool")
+async def cancel_edit_tool(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await edit_tools_list(callback, state)
+    await callback.answer("❌ Редагування інструменту скасовано")
 
 @router.message(EditToolsState.editing_tool)
 async def save_edited_tool(message: Message, state: FSMContext):
@@ -146,20 +192,30 @@ async def save_edited_tool(message: Message, state: FSMContext):
     old_name = data.get("old_tool_name")
     new_name = message.text.strip()
     
+    if new_name.lower() == "скасувати":
+        await message.answer("❌ Редагування інструменту скасовано.")
+        await state.clear()
+        await edit_tools_list(message, state)
+        return
+    
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         if not toolbox:
             await message.answer("❌ Ящик не знайдено")
+            await state.clear()
             return
         
         tools = toolbox.get_tools()
         
         if old_name in tools:
+            if new_name in tools and new_name != old_name:
+                await message.answer(f"⚠️ Інструмент '{new_name}' вже існує. Введіть іншу назву:")
+                return
             idx = tools.index(old_name)
             tools[idx] = new_name
             toolbox.set_tools(tools)
             await session.commit()
-            await message.answer(f"✅ Перейменовано '{old_name}' → '{new_name}'")
+            await message.answer(f"✅ Інструмент '{old_name}' перейменовано на '{new_name}'")
         else:
             await message.answer("❌ Інструмент не знайдено.")
     
@@ -250,6 +306,21 @@ async def full_report(message: Message):
                     report += f"│\n│ ❌ **Відсутні інструменти:**\n"
                     for tool in missing_tools:
                         report += f"│    • {tool}\n"
+                    
+                    first_missing = await session.execute(
+                        select(ToolCheck).where(
+                            ToolCheck.toolbox_id == box.id, 
+                            ToolCheck.is_present == False
+                        ).order_by(ToolCheck.timestamp).limit(1)
+                    )
+                    first_missing = first_missing.scalar_one_or_none()
+                    
+                    if first_missing:
+                        user = await session.get(User, first_missing.user_id)
+                        user_name = user.full_name if user else "Невідомо"
+                        report += f"│\n│ 🔍 **Вперше виявив відсутність:**\n"
+                        report += f"│    👤 {user_name}\n"
+                        report += f"│    🕐 {first_missing.timestamp.strftime('%d.%m.%Y о %H:%M')}\n"
                 else:
                     report += f"│\n│ ⚠️ Немає даних про перевірку\n"
                     report += f"│    Проведіть перевірку ящика\n"
@@ -338,6 +409,7 @@ async def box_detail_report(callback: CallbackQuery):
         await callback.message.answer(report, parse_mode="Markdown")
     await callback.answer()
 
+# ==================== ІНШІ ФУНКЦІЇ ====================
 @router.message(F.text == "🏷️ Змінити останнього користувача")
 async def change_last_user(message: Message, state: FSMContext):
     async with async_session() as session:
@@ -437,7 +509,6 @@ async def show_photo(callback: CallbackQuery):
         photo = photo.scalar_one_or_none()
         
         if photo and os.path.exists(photo.photo_path):
-            from aiogram.types import FSInputFile
             await callback.message.answer_photo(
                 photo=FSInputFile(photo.photo_path), 
                 caption=f"🔧 {tool_name}"
