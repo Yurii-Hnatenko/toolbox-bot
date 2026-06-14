@@ -21,7 +21,6 @@ class LastUserState(StatesGroup):
     entering_name = State()
 
 def safe_int(value, default=None):
-    """Безпечне перетворення на int"""
     try:
         return int(value)
     except (ValueError, TypeError, IndexError):
@@ -74,7 +73,7 @@ async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
                 buttons.append([InlineKeyboardButton(text=f"✏️ {tool}", callback_data=f"edit_tool_{toolbox_id}_{tool}")])
                 buttons.append([InlineKeyboardButton(text=f"🗑️ Видалити {tool}", callback_data=f"del_tool_{toolbox_id}_{tool}")])
             buttons.append([InlineKeyboardButton(text="➕ Додати інструмент", callback_data=f"add_tool_{toolbox_id}")])
-            buttons.append([InlineKeyboardButton(text="🔙 Назад до вибору ящика", callback_data="back_to_boxes")])
+            buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_boxes")])
             
             await callback.message.answer(
                 f"📦 {toolbox.name}\nОберіть дію:",
@@ -269,7 +268,6 @@ async def full_report(message: Message):
         report += "━" * 30 + "\n\n"
         
         for box in toolboxes:
-            # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
             result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
             status = result.scalar_one_or_none()
             
@@ -363,7 +361,6 @@ async def box_detail_report(callback: CallbackQuery):
             await callback.answer()
             return
         
-        # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
         result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
         status = result.scalar_one_or_none()
         
@@ -442,7 +439,6 @@ async def save_last_user(message: Message, state: FSMContext):
     last_user = message.text.strip()
     
     async with async_session() as session:
-        # ВИПРАВЛЕНО: scalar_one_or_none замість scalar_one
         result = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id))
         box_status = result.scalar_one_or_none()
         if box_status:
