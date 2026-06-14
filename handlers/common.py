@@ -6,7 +6,9 @@ from models import User
 from keyboards import main_menu_by_role
 from config import ADMIN_IDS
 from sqlalchemy import select
+import logging
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 # Глобальний словник для зберігання активної ролі
@@ -21,8 +23,10 @@ async def cmd_start(message: Message):
         if not user:
             if message.from_user.id in ADMIN_IDS:
                 role = "admin,mechanic,operator"
+                logger.info(f"Адмін {message.from_user.id} отримав всі ролі")
             else:
                 role = "operator"
+                logger.info(f"Користувач {message.from_user.id} отримав роль оператора")
             
             user = User(
                 telegram_id=message.from_user.id,
