@@ -145,7 +145,7 @@ async def delete_tool(callback: CallbackQuery):
     await callback.answer()
     await edit_tools_list(callback, FSMContext())
 
-# ==================== ОНОВЛЕНИЙ ЗВІТ ====================
+# ==================== ЗВІТИ ====================
 @router.message(F.text == "📊 Загальний звіт")
 async def full_report(message: Message):
     async with async_session() as session:
@@ -160,14 +160,11 @@ async def full_report(message: Message):
         report += "━" * 30 + "\n\n"
         
         for box in toolboxes:
-            # Отримуємо статус ящика
             status = await session.execute(select(BoxStatus).where(BoxStatus.toolbox_id == box.id))
             status = status.scalar_one_or_none()
             
-            # Отримуємо список інструментів
             tools = box.get_tools()
             
-            # Отримуємо останні перевірки
             last_checks = {}
             if tools:
                 checks_result = await session.execute(
@@ -181,10 +178,7 @@ async def full_report(message: Message):
                         last_checks[check.tool_name] = check.is_present
                         checked_tools.add(check.tool_name)
             
-            # Визначаємо статус комплектності
             is_complete = status.is_complete if status else True
-            
-            # Значок статусу
             status_icon = "✅" if is_complete else "❌"
             status_text = "КОМПЛЕКТНО" if is_complete else "НЕ КОМПЛЕКТНО"
             
@@ -192,7 +186,6 @@ async def full_report(message: Message):
             report += f"┌─────────────────────────────────\n"
             report += f"│ Статус: {status_icon} {status_text}\n"
             
-            # Якщо не комплектно - список відсутніх інструментів
             if not is_complete:
                 missing_tools = []
                 for tool in tools:
@@ -210,7 +203,6 @@ async def full_report(message: Message):
             else:
                 report += f"│\n│ ✅ Всі інструменти на місці\n"
             
-            # Інформація про останню перевірку
             if status and status.last_check_time:
                 last_check_date = status.last_check_time.strftime('%d.%m.%Y %H:%M')
                 report += f"│\n│ 🕐 Остання перевірка: {last_check_date}\n"
@@ -222,7 +214,6 @@ async def full_report(message: Message):
         
         await message.answer(report, parse_mode="Markdown")
 
-# ==================== ДЕТАЛЬНИЙ ЗВІТ ====================
 @router.message(F.text == "📋 Детальний звіт")
 async def detail_report_menu(message: Message):
     async with async_session() as session:
@@ -249,7 +240,6 @@ async def box_detail_report(callback: CallbackQuery):
         
         tools = toolbox.get_tools()
         
-        # Отримуємо останні перевірки
         last_checks = {}
         if tools:
             checks_result = await session.execute(
@@ -292,7 +282,6 @@ async def box_detail_report(callback: CallbackQuery):
         await callback.message.answer(report, parse_mode="Markdown")
     await callback.answer()
 
-# ==================== ІНШІ ФУНКЦІЇ ====================
 @router.message(F.text == "🏷️ Змінити останнього користувача")
 async def change_last_user(message: Message, state: FSMContext):
     async with async_session() as session:
