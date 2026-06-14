@@ -16,9 +16,10 @@ def main_menu_by_role(role):
     elif role == "mechanic":
         return ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="📊 Загальний звіт"), KeyboardButton(text="🔧 Керування інструментами")],
-                [KeyboardButton(text="📸 Фото інструментів"), KeyboardButton(text="🏷️ Змінити останнього користувача")],
-                [KeyboardButton(text="ℹ️ Інформація"), KeyboardButton(text="🔄 Перемкнути роль")],
+                [KeyboardButton(text="📊 Загальний звіт"), KeyboardButton(text="📋 Детальний звіт")],
+                [KeyboardButton(text="🔧 Керування інструментами"), KeyboardButton(text="📸 Фото інструментів")],
+                [KeyboardButton(text="🏷️ Змінити останнього користувача"), KeyboardButton(text="ℹ️ Інформація")],
+                [KeyboardButton(text="🔄 Перемкнути роль")],
             ],
             resize_keyboard=True
         )
@@ -38,4 +39,11 @@ def toolboxes_list_kb(toolboxes, prefix="check"):
     buttons = []
     for tb in toolboxes:
         buttons.append([InlineKeyboardButton(text=tb.name, callback_data=f"{prefix}_{tb.id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# НОВА ФУНКЦІЯ ДЛЯ ДЕТАЛЬНИХ ЗВІТІВ
+def report_boxes_list_kb(toolboxes):
+    buttons = []
+    for tb in toolboxes:
+        buttons.append([InlineKeyboardButton(text=f"📊 {tb.name}", callback_data=f"report_{tb.id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
