@@ -48,7 +48,6 @@ def webhook():
         if not data:
             return 'No data', 400
         
-        # Імпортуємо Update тут, якщо не імпортовано вище
         from aiogram.types import Update
         update = Update.model_validate(data)
         run_async(dp.feed_update(bot, update))
