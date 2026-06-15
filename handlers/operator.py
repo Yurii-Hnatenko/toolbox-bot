@@ -188,7 +188,6 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
     
     try:
         async with async_session() as session:
-            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
             )
@@ -290,7 +289,6 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     try:
         async with async_session() as session:
-            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == message.from_user.id)
             )
