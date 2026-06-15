@@ -28,31 +28,12 @@ def safe_int(value, default=None):
     except (ValueError, TypeError, IndexError):
         return default
 
-@router.message(F.text == "🔧 Керування інструментами")
-async def manage_tools(message: Message, state: FSMContext):
-    async with async_session() as session:
-        toolboxes = await session.execute(select(Toolbox))
-        toolboxes = toolboxes.scalars().all()
-        if not toolboxes:
-            await message.answer("❌ Немає ящиків.")
-            return
-        await state.set_state(EditToolsState.selecting_toolbox)
-        await message.answer("Оберіть ящик:", reply_markup=toolboxes_list_kb(toolboxes, "edittools"))
-
-@router.callback_query(F.data.startswith("edittools_"))
-async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
-    toolbox_id = safe_int(callback.data.split("_")[1])
-    if toolbox_id is None:
-        await callback.answer("Помилка: невірний формат даних")
-        return
-    
-    await state.update_data(toolbox_id=toolbox_id)
-    
+async def show_tools_list(callback: CallbackQuery, state: FSMContext, toolbox_id: int):
+    """Показує список інструментів для редагування"""
     async with async_session() as session:
         toolbox = await session.get(Toolbox, toolbox_id)
         if not toolbox:
             await callback.message.answer("❌ Ящик не знайдено")
-            await callback.answer()
             return
         
         tools = toolbox.get_tools()
@@ -81,7 +62,27 @@ async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
                 f"📦 {toolbox.name}\nОберіть дію:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
-    await callback.answer()
+
+@router.message(F.text == "🔧 Керування інструментами")
+async def manage_tools(message: Message, state: FSMContext):
+    async with async_session() as session:
+        toolboxes = await session.execute(select(Toolbox))
+        toolboxes = toolboxes.scalars().all()
+        if not toolboxes:
+            await message.answer("❌ Немає ящиків.")
+            return
+        await state.set_state(EditToolsState.selecting_toolbox)
+        await message.answer("Оберіть ящик:", reply_markup=toolboxes_list_kb(toolboxes, "edittools"))
+
+@router.callback_query(F.data.startswith("edittools_"))
+async def edit_tools_list(callback: CallbackQuery, state: FSMContext):
+    toolbox_id = safe_int(callback.data.split("_")[1])
+    if toolbox_id is None:
+        await callback.answer("Помилка: невірний формат даних")
+        return
+    
+    await state.update_data(toolbox_id=toolbox_id)
+    await show_tools_list(callback, state, toolbox_id)
 
 @router.callback_query(F.data == "back_to_boxes")
 async def back_to_boxes(callback: CallbackQuery, state: FSMContext):
@@ -115,8 +116,10 @@ async def start_add_tool(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "cancel_add_tool")
 async def cancel_add_tool(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    toolbox_id = data.get("toolbox_id")
     await state.clear()
-    await edit_tools_list(callback, state)
+    await show_tools_list(callback, state, toolbox_id)
     await callback.answer("❌ Додавання інструменту скасовано")
 
 @router.message(EditToolsState.adding_tool)
@@ -128,7 +131,9 @@ async def add_tool(message: Message, state: FSMContext):
     if new_tool.lower() == "скасувати":
         await message.answer("❌ Додавання інструменту скасовано.")
         await state.clear()
-        await edit_tools_list(message, state)
+        # Повертаємось до списку, але потрібно створити фейковий callback
+        # Це можна зробити через новий виклик, але краще через окрему функцію
+        await state.clear()
         return
     
     async with async_session() as session:
@@ -150,7 +155,8 @@ async def add_tool(message: Message, state: FSMContext):
             await message.answer(f"✅ Інструмент '{new_tool}' додано до ящика '{toolbox.name}'!")
     
     await state.clear()
-    await edit_tools_list(message, state)
+    # Повідомляємо користувача, що можна продовжити
+    await message.answer("Можете продовжити керування інструментами або повернутися в меню.")
 
 @router.callback_query(F.data.startswith("edit_tool_"))
 async def edit_tool(callback: CallbackQuery, state: FSMContext):
@@ -182,8 +188,10 @@ async def edit_tool(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "cancel_edit_tool")
 async def cancel_edit_tool(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    toolbox_id = data.get("toolbox_id")
     await state.clear()
-    await edit_tools_list(callback, state)
+    await show_tools_list(callback, state, toolbox_id)
     await callback.answer("❌ Редагування інструменту скасовано")
 
 @router.message(EditToolsState.editing_tool)
@@ -196,7 +204,6 @@ async def save_edited_tool(message: Message, state: FSMContext):
     if new_name.lower() == "скасувати":
         await message.answer("❌ Редагування інструменту скасовано.")
         await state.clear()
-        await edit_tools_list(message, state)
         return
     
     async with async_session() as session:
@@ -221,7 +228,7 @@ async def save_edited_tool(message: Message, state: FSMContext):
             await message.answer("❌ Інструмент не знайдено.")
     
     await state.clear()
-    await edit_tools_list(message, state)
+    await message.answer("Можете продовжити керування інструментами або повернутися в меню.")
 
 @router.callback_query(F.data.startswith("del_tool_"))
 async def delete_tool(callback: CallbackQuery):
@@ -253,7 +260,7 @@ async def delete_tool(callback: CallbackQuery):
             await callback.message.answer(f"🗑️ Інструмент '{tool_name}' видалено.")
     
     await callback.answer()
-    await edit_tools_list(callback, FSMContext())
+    await show_tools_list(callback, FSMContext(), toolbox_id)
 
 # ==================== ЗВІТИ ====================
 @router.message(F.text == "📊 Загальний звіт")
