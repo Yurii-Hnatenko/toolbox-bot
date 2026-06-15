@@ -2,19 +2,24 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from models import Base
+import urllib.parse
 
 # Отримуємо URL бази даних зі змінних середовища Render
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# Конвертуємо postgres:// в postgresql+asyncpg://
 if DATABASE_URL:
+    # Конвертуємо postgres:// в postgresql+asyncpg://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-    else:
-        DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL.replace("postgresql://", "")
-
-# Для локального тестування (SQLite)
-if not DATABASE_URL:
+    elif DATABASE_URL.startswith("postgresql://"):
+        # Витягуємо компоненти для правильного форматування
+        parts = DATABASE_URL.replace("postgresql://", "").split("@")
+        if len(parts) == 2:
+            user_pass = parts[0]
+            host_db = parts[1]
+            DATABASE_URL = f"postgresql+asyncpg://{user_pass}@{host_db}"
+else:
+    # Для локального тестування
     DATABASE_URL = "sqlite+aiosqlite:///toolbox.db"
 
 print(f"📁 Підключення до бази даних")
