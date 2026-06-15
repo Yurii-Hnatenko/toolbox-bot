@@ -1,9 +1,8 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from database import async_session
+from database import SessionLocal
 from models import User
 from keyboards import main_menu_by_role
-from sqlalchemy import select
 from handlers.common import active_role
 import logging
 
@@ -12,9 +11,9 @@ router = Router()
 
 @router.message(F.text == "🔄 Перемкнути роль")
 async def switch_role_menu(message: Message):
-    async with async_session() as session:
-        result = await session.execute(select(User).where(User.telegram_id == message.from_user.id))
-        user = result.scalar_one_or_none()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.telegram_id == message.from_user.id).first()
         
         if not user:
             await message.answer("❌ Користувача не знайдено. Надішліть /start")
@@ -42,15 +41,17 @@ async def switch_role_menu(message: Message):
             f"Оберіть нову роль:",
             reply_markup=kb
         )
+    finally:
+        db.close()
 
 @router.callback_query(F.data.startswith("switch_role_"))
 async def set_active_role(callback: CallbackQuery):
     new_role = callback.data.split("_")[2]
     user_id = callback.from_user.id
     
-    async with async_session() as session:
-        result = await session.execute(select(User).where(User.telegram_id == user_id))
-        user = result.scalar_one_or_none()
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.telegram_id == user_id).first()
         
         if not user:
             await callback.answer("❌ Користувача не знайдено")
@@ -74,4 +75,6 @@ async def set_active_role(callback: CallbackQuery):
         except Exception:
             pass
         
+    finally:
+        db.close()
     await callback.answer()
