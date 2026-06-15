@@ -22,7 +22,7 @@ try:
 except Exception as e:
     logger.error(f"❌ Помилка ініціалізації бази: {e}")
 
-# Імпортуємо бота
+# Імпортуємо бота та Update
 try:
     from main import bot, dp
     from aiogram.types import Update
@@ -48,12 +48,16 @@ def webhook():
         if not data:
             return 'No data', 400
         
+        # Імпортуємо Update тут, якщо не імпортовано вище
+        from aiogram.types import Update
         update = Update.model_validate(data)
         run_async(dp.feed_update(bot, update))
         
         return 'OK', 200
     except Exception as e:
         logger.error(f"Помилка webhook: {e}")
+        import traceback
+        traceback.print_exc()
         return 'Error', 500
 
 @app.route('/health', methods=['GET'])
