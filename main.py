@@ -1,6 +1,7 @@
 import asyncio
 import os
 from aiogram import Bot, Dispatcher
+from aiogram.types import Update  # Додано імпорт Update
 from config import BOT_TOKEN
 from database import init_db
 from handlers import common, operator, mechanic, admin, role_switch
