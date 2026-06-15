@@ -35,7 +35,7 @@ async def select_toolbox(message: Message, state: FSMContext):
             await message.answer("❌ Немає створених ящиків.")
             return
         await state.set_state(CheckState.selecting_toolbox)
-        await message.answer("Оберіть ящик:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
+        await message.answer("Оберіть ящик для перевірки:", reply_markup=toolboxes_list_kb(toolboxes, "check"))
 
 @router.callback_query(F.data.startswith("check_"))
 async def start_check(callback: CallbackQuery, state: FSMContext):
@@ -188,6 +188,7 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
     
     try:
         async with async_session() as session:
+            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
             )
@@ -224,6 +225,7 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
                 if not res["present"]:
                     all_present = False
             
+            # Отримуємо або створюємо статус ящика
             box_result = await session.execute(
                 select(BoxStatus).where(BoxStatus.toolbox_id == toolbox_id)
             )
@@ -263,8 +265,8 @@ async def skip_photo(callback: CallbackQuery, state: FSMContext):
         )
         
     except Exception as e:
-        logger.error(f"Помилка: {e}")
-        await callback.message.answer(f"❌ Помилка: {str(e)}")
+        logger.error(f"Помилка при збереженні перевірки: {e}")
+        await callback.message.answer(f"❌ Сталася помилка: {str(e)}")
     finally:
         await state.clear()
 
@@ -289,6 +291,7 @@ async def save_photo_and_check(message: Message, state: FSMContext):
     
     try:
         async with async_session() as session:
+            # Отримуємо або створюємо користувача
             result = await session.execute(
                 select(User).where(User.telegram_id == message.from_user.id)
             )
@@ -367,8 +370,8 @@ async def save_photo_and_check(message: Message, state: FSMContext):
         )
         
     except Exception as e:
-        logger.error(f"Помилка: {e}")
-        await message.answer(f"❌ Помилка: {str(e)}")
+        logger.error(f"Помилка при збереженні перевірки: {e}")
+        await message.answer(f"❌ Сталася помилка: {str(e)}")
     finally:
         await state.clear()
 
@@ -447,7 +450,7 @@ async def show_tools_for_photo(callback: CallbackQuery):
         
         buttons = [[InlineKeyboardButton(text=f"📷 {tool}", callback_data=f"view_photo_{toolbox_id}_{tool}")] for tool in tools]
         kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await callback.message.answer(f"📸 Оберіть інструмент:", reply_markup=kb)
+        await callback.message.answer(f"📸 Оберіть інструмент у ящику {toolbox.name}:", reply_markup=kb)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("view_photo_"))
