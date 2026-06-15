@@ -61,7 +61,6 @@ async def set_active_role(callback: CallbackQuery):
             return
         
         active_role[user_id] = new_role
-        logger.info(f"Користувач {user_id} переключив роль на {new_role}")
         
         await callback.message.answer(
             f"✅ Активну роль змінено на: *{new_role.capitalize()}*\n\n"
